@@ -370,7 +370,7 @@ def dump_cluster_results_json(
         assert all([col in tab_inj.columns for col in ["MJD", "Beam", "DM", "SNR", "FRBno"]])
 
         # is candidate proximal to any in tab_inj?
-        t_close = 15  # seconds  TODO: why not 1 sec?
+        t_close = 20 # seconds  TODO: why not 1 sec?
         dm_close = 10 # pc/cm3
         beam_close = 2 # number
         sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/(3600*24)

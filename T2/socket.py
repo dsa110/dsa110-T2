@@ -226,6 +226,10 @@ def cluster_and_plot(
 
     # TODO: put these in json config file
     min_dm = t2_cnf["min_dm"]  # smallest dm in filtering
+    # Take min DM to be either 0.75 times MW DM or 50., whatever
+    # is higher.
+    dm_mw = ds.get_dict('/mon/array/gal_dm')['gal_dm']
+    min_dm = max(50., dm_mw*0.75)
     max_ibox = t2_cnf["max_ibox"]  # largest ibox in filtering
     min_snr = t2_cnf["min_snr"]  # smallest snr in filtering
     min_snr_t2out = t2_cnf[

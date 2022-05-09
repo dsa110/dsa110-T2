@@ -371,7 +371,7 @@ def dump_cluster_results_json(
 
         # is candidate proximal to any in tab_inj?
         t_close = 20 # seconds  TODO: why not 1 sec?
-        dm_close = 10 # pc/cm3
+        dm_close = 20 # pc/cm3
         beam_close = 2 # number
         sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/(3600*24)
         sel_dm = np.abs(tab_inj["DM"] - dm) < dm_close
@@ -444,7 +444,7 @@ def dump_cluster_results_json(
             else:
                 print(f"Not triggering on source in beam")
                 logger.info(f"Not triggering on source in beam")
-                return None, lastname
+                return None, candname
 
         else:
             with open(outputfile, "w") as f:  # encoding='utf-8'

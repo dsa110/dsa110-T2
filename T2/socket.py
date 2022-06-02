@@ -232,13 +232,11 @@ def cluster_and_plot(
     min_dm = max(50., dm_mw*0.75)
     max_ibox = t2_cnf["max_ibox"]  # largest ibox in filtering
     min_snr = t2_cnf["min_snr"]  # smallest snr in filtering
-    min_snr_t2out = t2_cnf[
-        "min_snr_t2out"
-    ]  # smallest snr to write T2 output cand file
+    min_snr_wide = t2_cnf["min_snr_wide"]  # smallest snr for wide events
+    wide_ibox = t2_cnf["wide_ibox"]  # min ibox for wide snr thresholding
+    min_snr_t2out = t2_cnf["min_snr_t2out"]  # write T2 output cand file above this snr
     if max_ncl is None:
-        max_ncl = t2_cnf[
-            "max_ncl"
-        ]  # largest number of clusters allowed in triggering
+        max_ncl = t2_cnf["max_ncl"]  # largest number of clusters allowed in triggering
     max_cntb0 = t2_cnf["max_ctb0"]
     max_cntb = t2_cnf["max_ctb"]
     target_params = (50.0, 100.0, 20.0)  # Galactic bursts
@@ -280,8 +278,10 @@ def cluster_and_plot(
 
     tab3 = cluster_heimdall.filter_clustered(
         tab2,
-        min_snr=min_snr,
         min_dm=min_dm,
+        min_snr=min_snr,
+        min_snr_wide=min_snr_wide,
+        wide_ibox=wide_ibox,
         max_ibox=max_ibox,
         max_cntb=max_cntb,
         max_cntb0=max_cntb0,

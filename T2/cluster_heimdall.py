@@ -234,18 +234,20 @@ def get_peak(tab):
 
 
 def filter_clustered(
-    tab,
-    min_snr=None,
-    min_dm=None,
-    max_ibox=None,
-    min_cntb=None,
-    max_cntb=None,
-    max_cntb0=None,
-    min_cntc=None,
-    max_cntc=None,
-    max_ncl=None,
-    target_params=None,
-    frac_wide=0.0,
+        tab,
+        min_dm=None,
+        min_snr=None,
+        min_snr_wide=None,
+        wide_ibox=None,
+        max_ibox=None,
+        min_cntb=None,
+        max_cntb=None,
+        max_cntb0=None,
+        min_cntc=None,
+        max_cntc=None,
+        max_ncl=None,
+        target_params=None,
+        frac_wide=0.0,
 ):
     """Function to select a subset of clustered output.
     Can set minimum SNR, min/max number of beams in cluster, min/max total count in cluster.
@@ -262,7 +264,10 @@ def filter_clustered(
 
     if min_snr is not None:
         if min_snrt is None:
-            good *= tab["snr"] > min_snr
+#            good *= tab["snr"] > min_snr
+            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
+            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
+            good *= good0 + good1
         else:
             # print(f'min_snr={min_snr}, min_snrt={min_snrt}, min_dmt={min_dmt}, max_dmt={max_dmt}, tab={tab[["snr", "dm"]]}')
             good0 = (tab["snr"] > min_snr) * (tab["dm"] > max_dmt)

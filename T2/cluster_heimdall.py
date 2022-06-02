@@ -235,11 +235,11 @@ def get_peak(tab):
 
 def filter_clustered(
         tab,
-        min_dm=None,
-        min_snr=None,
-        min_snr_wide=None,
-        wide_ibox=None,
-        max_ibox=None,
+        min_dm=50,
+        min_snr=8,
+        min_snr_wide=9,
+        wide_ibox=17,
+        max_ibox=33,
         min_cntb=None,
         max_cntb=None,
         max_cntb0=None,
@@ -265,6 +265,7 @@ def filter_clustered(
     if min_snr is not None:
         if min_snrt is None:
 #            good *= tab["snr"] > min_snr
+            print(min_snr, wide_ibox, min_snr_wide)
             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
             good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
             good *= good0 + good1
@@ -559,4 +560,4 @@ def dump_cluster_results_heimdall(
         print("max_ncl not set. Not filtering heimdall output file.")
 
     if len(tab) > 0:
-        tab.write(outputfile, format="ascii.no_header")
+        tab.write(outputfile, format="ascii.no_header", overwrite=True)

@@ -275,7 +275,7 @@ def cluster_and_plot(
             print("ibox64 filter")
 
     # Done
-
+    print(min_snr, wide_ibox, min_snr_wide)
     tab3 = cluster_heimdall.filter_clustered(
         tab2,
         min_dm=min_dm,

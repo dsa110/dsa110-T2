@@ -8,6 +8,7 @@ import os.path
 import hdbscan
 import numpy as np
 from astropy import time
+import astropy.units as unts
 from astropy.io import ascii
 from astropy.io.ascii.core import InconsistentTableError
 
@@ -342,7 +343,9 @@ def dump_cluster_results_json(
     nbeams=0,
     max_nbeams=100,
     frac_wide=0.0,
-    injectionfile='/home/ubuntu/injection_list.txt'
+    injectionfile='/home/ubuntu/injection_list.txt',
+    prev_trig_time=None,
+    min_timedelt=1.    
 ):
     """
     Takes tab from parse_candsfile and clsnr from get_peak,
@@ -399,7 +402,7 @@ def dump_cluster_results_json(
 
     output_dict = {candname: {}}
     if outputfile is None:
-        outputfile = f"{outroot}{candname}.json"
+        outputfile = f"{outroot}cluster_output{candname}.json"
 
     row = tab[imaxsnr]
     red_tab = tab[imaxsnr : imaxsnr + 1]
@@ -414,6 +417,9 @@ def dump_cluster_results_json(
         output_dict[candname]["ra"],
         output_dict[candname]["dec"],
     ) = get_radec()  # quick and dirty
+
+    if isinjection:
+        output_dict[candname]['injected'] = isinjection
 
     nbeams_condition = False
     print(f"Checking nbeams condition: {nbeams}>{max_nbeams}")
@@ -433,6 +439,13 @@ def dump_cluster_results_json(
                 red_tab, coords, snrs, beam_model=beam_model, do_check=False
             )
             if len(tab_checked):
+
+                if prev_trig_time is not None:
+                    if time.Time.now()-prev_trig_time < min_timedelt*unts.s:
+                        print(f"Not triggering because of short wait time")
+                        logger.info(f"Not triggering because of short wait time")
+                        return None, candname, None
+                        
                 with open(outputfile, "w") as f:  # encoding='utf-8'
                     print(
                         f"Writing trigger file for index {imaxsnr} with SNR={maxsnr}"
@@ -444,15 +457,22 @@ def dump_cluster_results_json(
 
                 if trigger:  #  and not isinjection ?
                     send_trigger(output_dict=output_dict)
+                    trigtime = time.Time.now()
 
-                return row, candname
+                return row, candname, trigtime
 
             else:
                 print(f"Not triggering on source in beam")
                 logger.info(f"Not triggering on source in beam")
-                return None, candname
+                return None, candname, None
 
         else:
+            if prev_trig_time is not None:
+                if time.Time.now()-prev_trig_time < min_timedelt*unts.s:
+                    print(f"Not triggering because of short wait time")
+                    logger.info(f"Not triggering because of short wait time")
+                    return None, candname, None
+                
             with open(outputfile, "w") as f:  # encoding='utf-8'
                 print(
                     f"Writing trigger file for index {imaxsnr} with SNR={maxsnr}"
@@ -464,8 +484,9 @@ def dump_cluster_results_json(
 
             if trigger:  # and not isinjection ?
                 send_trigger(output_dict=output_dict)
+                trigtime = time.Time.now()
 
-            return row, candname
+            return row, candname, trigtime
 
     else:
         print(
@@ -474,10 +495,10 @@ def dump_cluster_results_json(
         logger.info(
             f"Not triggering on block with {len(tab)} candidates and nbeams {nbeams}>{max_nbeams} beam count sum"
         )
-        return None, lastname
+        return None, lastname, None
 
     print("Not triggering on nbeams condition")
-    return None, lastname
+    return None, lastname, None
 
 
 def get_radec(mjd=None, beamnum=None):
@@ -561,3 +582,8 @@ def dump_cluster_results_heimdall(
 
     if len(tab) > 0:
         tab.write(outputfile, format="ascii.no_header", overwrite=True)
+        return True
+
+    return False
+        
+    

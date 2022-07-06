@@ -375,8 +375,12 @@ def dump_cluster_results_json(
     isinjection = False
     if injectionfile is not None:
         # check candidate against injectionfile
-        tab_inj = ascii.read(injectionfile)
-        assert all([col in tab_inj.columns for col in ["MJD", "Beam", "DM", "SNR", "FRBno"]])
+        try:
+            tab_inj = ascii.read(injectionfile)
+        except:
+            tab_inj = ascii.read(injectionfile, names="MJD   Beam   DM    SNR   Width_fwhm   spec_ind  FRBno".split())
+        finally:
+            assert all([col in tab_inj.columns for col in ["MJD", "Beam", "DM", "SNR", "FRBno"]])
 
         # is candidate proximal to any in tab_inj?
         t_close = 20 # seconds  TODO: why not 1 sec?
@@ -388,6 +392,7 @@ def dump_cluster_results_json(
         sel = sel_t*sel_dm*sel_beam
         if len(np.where(sel)[0]):
             isinjection = True
+            
 
     if isinjection:
         basename = names.increment_name(mjd, lastname=lastname)

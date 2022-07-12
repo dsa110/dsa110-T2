@@ -16,7 +16,7 @@ try:
 except ModuleNotFoundError:
     print("not importing triggering")
 from dsautils import coordinates, dsa_store
-from event import names
+from event import names  # TODO: add event to get DSAEvent class
 
 ds = dsa_store.DsaStore()
 import dsautils.dsa_syslog as dsl
@@ -426,6 +426,9 @@ def dump_cluster_results_json(
 
     if len(tab) and nbeams_condition is False:
         print(red_tab)
+
+        # TODO: create DSAEvent here and use it instead of output_dict
+
         if cat is not None and red_tab is not None:
             # beam_model = triggering.read_beam_model(beam_model)
             tab_checked = triggering.check_clustered_sources(
@@ -439,7 +442,7 @@ def dump_cluster_results_json(
                     logger.info(
                         f"Writing trigger file for index {imaxsnr} with SNR={maxsnr}"
                     )
-                    json.dump(output_dict, f, ensure_ascii=False, indent=4)
+                    json.dump(output_dict, f, ensure_ascii=False, indent=4)   # could replace this with DSAEvent method
 
                 if trigger:  #  and not isinjection ?
                     send_trigger(output_dict=output_dict)

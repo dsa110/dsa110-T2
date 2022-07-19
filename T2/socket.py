@@ -242,8 +242,18 @@ def cluster_and_plot(
     dm_mw = ds.get_dict('/mon/array/gal_dm')['gal_dm']
     min_dm = max(50., dm_mw*0.75)
     max_ibox = t2_cnf["max_ibox"]  # largest ibox in filtering
-    min_snr = t2_cnf["min_snr"]  # smallest snr in filtering
-    min_snr_wide = t2_cnf["min_snr_wide"]  # smallest snr for wide events
+
+    # obtain this from etcd
+    # TODO: try a timeout exception
+    try:
+        min_snr = ds.get_dict('/cnf/t2')["min_snr"]  # smallest snr in filtering
+    except:
+        min_snr = t2_cnf["min_snr"]
+    try:
+        min_snr_wide = ds.get_dict('/cnf/t2')["min_snr_wide"]  # smallest snr in filtering
+    except:
+        min_snr_wide = t2_cnf["min_snr_wide"]
+    
     wide_ibox = t2_cnf["wide_ibox"]  # min ibox for wide snr thresholding
     min_snr_t2out = t2_cnf["min_snr_t2out"]  # write T2 output cand file above this snr
     if max_ncl is None:
@@ -338,7 +348,7 @@ def cluster_and_plot(
             old_mjd = str(int(a)-1)
             
             os.system("cat "+output_file+" >> "+outroot+output_mjd+".csv")
-            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger \n/' "+outroot+output_mjd+".csv; fi")
+            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
             os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
             os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv | tr ' ' ',' >> "+outroot+"cluster_output.csv")

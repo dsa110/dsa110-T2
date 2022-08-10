@@ -12,9 +12,11 @@ import datetime
 import time
 
 from astropy.time import Time
+import astropy.units as unts
 from dsautils import cnf, dsa_store, dsa_syslog
 from etcd3.exceptions import ConnectionFailedError
 from event import names
+import os
 
 ds = dsa_store.DsaStore()
 logger = dsa_syslog.DsaSyslogger()
@@ -55,6 +57,9 @@ def parse_socket(
     source_catalog: path to file containing source catalog for source rejection. default None
     """
 
+    # startup time
+    prev_trig_time = Time.now()
+    
     # count of output - separate from gulps
     globct = 0
 
@@ -130,7 +135,7 @@ def parse_socket(
                 if len(lines[0]) > 0:
                     candsfile += "\n".join(lines)
 
-        print(f"Received gulp_i {gulps}")
+        print(f"Received gulp_i {gulps}; prev_trig_time {prev_trig_time}")
         if len(gulps) != len(cls):
             print(f"not all clients are gulping gulp {gulps}. Skipping...")
             gulp_status(1)
@@ -173,7 +178,7 @@ def parse_socket(
 
         try:
             tab = cluster_heimdall.parse_candsfile(candsfile)
-            lastname = cluster_and_plot(
+            lastname,trigtime = cluster_and_plot(
                 tab,
                 globct,
                 selectcols=selectcols,
@@ -185,7 +190,10 @@ def parse_socket(
                 beam_model=model,
                 coords=coords,
                 snrs=snrs,
+                prev_trig_time=prev_trig_time
             )
+            if trigtime is not None:
+                prev_trig_time = trigtime
             globct += 1
         except KeyboardInterrupt:
             print("Escaping parsing and plotting")
@@ -214,6 +222,7 @@ def cluster_and_plot(
     beam_model=None,
     coords=None,
     snrs=None,
+    prev_trig_time=None
 ):
     """
     Run clustering and plotting on read data.
@@ -225,20 +234,35 @@ def cluster_and_plot(
     """
 
     # TODO: put these in json config file
+    min_timedelt = 60. ## TODO put this in etcd
+    trigtime = None
     min_dm = t2_cnf["min_dm"]  # smallest dm in filtering
+    # Take min DM to be either 0.75 times MW DM or 50., whatever
+    # is higher.    
+    dm_mw = ds.get_dict('/mon/array/gal_dm')['gal_dm']
+    min_dm = max(50., dm_mw*0.75)
     max_ibox = t2_cnf["max_ibox"]  # largest ibox in filtering
-    min_snr = t2_cnf["min_snr"]  # smallest snr in filtering
-    min_snr_t2out = t2_cnf[
-        "min_snr_t2out"
-    ]  # smallest snr to write T2 output cand file
+
+    # obtain this from etcd
+    # TODO: try a timeout exception
+    try:
+        min_snr = ds.get_dict('/cnf/t2')["min_snr"]  # smallest snr in filtering
+    except:
+        min_snr = t2_cnf["min_snr"]
+    try:
+        min_snr_wide = ds.get_dict('/cnf/t2')["min_snr_wide"]  # smallest snr in filtering
+    except:
+        min_snr_wide = t2_cnf["min_snr_wide"]
+    
+    wide_ibox = t2_cnf["wide_ibox"]  # min ibox for wide snr thresholding
+    min_snr_t2out = t2_cnf["min_snr_t2out"]  # write T2 output cand file above this snr
     if max_ncl is None:
-        max_ncl = t2_cnf[
-            "max_ncl"
-        ]  # largest number of clusters allowed in triggering
+        max_ncl = t2_cnf["max_ncl"]  # largest number of clusters allowed in triggering
     max_cntb0 = t2_cnf["max_ctb0"]
     max_cntb = t2_cnf["max_ctb"]
-    target_params = (50.0, 100.0, 20.0)  # Galactic bursts
-
+    #target_params = (50.0, 100.0, 20.0)  # Galactic bursts
+    target_params = None
+    
     # cluster
     cluster_heimdall.cluster_data(
         tab,
@@ -273,11 +297,13 @@ def cluster_and_plot(
             print("ibox64 filter")
 
     # Done
-
+    print(min_snr, wide_ibox, min_snr_wide)
     tab3 = cluster_heimdall.filter_clustered(
         tab2,
-        min_snr=min_snr,
         min_dm=min_dm,
+        min_snr=min_snr,
+        min_snr_wide=min_snr_wide,
+        wide_ibox=wide_ibox,
         max_ibox=max_ibox,
         max_cntb=max_cntb,
         max_cntb0=max_cntb0,
@@ -287,7 +313,7 @@ def cluster_and_plot(
 
     col_trigger = np.zeros(len(tab2), dtype=int)
     if outroot is not None and len(tab3) and not ibox64_filter:
-        tab4, lastname = cluster_heimdall.dump_cluster_results_json(
+        tab4, lastname, trigtime = cluster_heimdall.dump_cluster_results_json(
             tab3,
             trigger=trigger,
             lastname=lastname,
@@ -298,6 +324,8 @@ def cluster_and_plot(
             outroot=outroot,
             nbeams=sum(nbeams_queue),
             frac_wide=frac_wide,
+            prev_trig_time=prev_trig_time,
+            min_timedelt=min_timedelt
         )
         if tab4 is not None and trigger:
             col_trigger = np.where(
@@ -307,14 +335,31 @@ def cluster_and_plot(
     # write T2 clustered/filtered results
     if outroot is not None and len(tab2):
         tab2["trigger"] = col_trigger
-        cluster_heimdall.dump_cluster_results_heimdall(
-            tab2,
-            outroot + str(np.floor(time.time()).astype("int")) + ".cand",
-            min_snr_t2out=min_snr_t2out,
-            max_ncl=max_ncl,
-        )
+        output_file = outroot + "cluster_output" + str(np.floor(time.time()).astype("int")) + ".cand"
+        outputted = cluster_heimdall.dump_cluster_results_heimdall(tab2,
+                                                                   output_file,
+                                                                   min_snr_t2out=min_snr_t2out,
+                                                                   max_ncl=max_ncl)
 
-    return lastname
+        # aggregate files
+        if outputted:
+            a = Time.now().mjd
+            output_mjd = str(int(a))
+            old_mjd = str(int(a)-1)
+            
+            os.system("cat "+output_file+" >> "+outroot+output_mjd+".csv")
+            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
+
+            os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
+            os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv | tr ' ' ',' >> "+outroot+"cluster_output.csv")
+            os.system("tail -n +2 "+outroot+output_mjd+".csv | tr ' ' ',' >> "+outroot+"cluster_output.csv")
+        
+
+        
+
+    return lastname, trigtime
+
+
 
 
 def recvall(sock, n):

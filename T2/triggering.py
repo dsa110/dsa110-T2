@@ -28,7 +28,7 @@ import dsautils.dsa_syslog as dsl
 logger = dsl.DsaSyslogger()
 logger.subsystem("software")
 logger.app("T2")
-MY_CNF = cnf.Conf()
+MY_CNF = cnf.Conf(use_etcd=True)
 CORR_CNF = MY_CNF.get("corr")
 
 # TODO should move to calib constants
@@ -111,10 +111,8 @@ def get_pointing_declination(tol=0.25):
             commanded_els[idx] = np.nan
 
     pt_el = np.nanmedian(commanded_els)
-    if pt_el is not np.nan:
-        pt_dec = coordinates.get_declination(pt_el)
-    else:
-        pt_el = CORR_CNF["pt_dec"]
+    pt_dec = coordinates.get_declination(pt_el)
+
     return pt_dec
 
 

@@ -421,7 +421,7 @@ def dump_cluster_results_json(
     (
         output_dict[candname]["ra"],
         output_dict[candname]["dec"],
-    ) = get_radec()  # quick and dirty
+    ) = get_radec(beamnum=127)  # quick and dirty
 
     if isinjection:
         output_dict[candname]['injected'] = isinjection

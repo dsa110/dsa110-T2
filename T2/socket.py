@@ -236,13 +236,8 @@ def cluster_and_plot(
     # TODO: put these in json config file
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
-    min_dm = t2_cnf["min_dm"]  # smallest dm in filtering
-    # Take min DM to be either 0.75 times MW DM or 50., whatever
-    # is higher.    
-    dm_mw = ds.get_dict('/mon/array/gal_dm')['gal_dm']
-    min_dm = max(50., dm_mw*0.75)
+    #min_dm = t2_cnf["min_dm"]  # smallest dm in filtering
     max_ibox = t2_cnf["max_ibox"]  # largest ibox in filtering
-
     # obtain this from etcd
     # TODO: try a timeout exception
     try:
@@ -253,6 +248,25 @@ def cluster_and_plot(
         min_snr_wide = ds.get_dict('/cnf/t2')["min_snr_wide"]  # smallest snr in filtering
     except:
         min_snr_wide = t2_cnf["min_snr_wide"]
+
+    # adjust min dm according to t2 cnf in etcd
+    try:
+        use_gal_dm = ds.get_dict('/cnf/t2')["use_gal_dm"]
+    except:
+        use_gal_dm = 1
+
+    if use_gal_dm==0:
+        min_dm = 50.
+    else:
+        # Take min DM to be either 0.75 times MW DM or 50., whatever
+        # is higher.
+        try:
+            dm_mw = ds.get_dict('/mon/array/gal_dm')['gal_dm']
+            min_dm = max(50., dm_mw*0.75)
+        except:
+            min_dm = 50.
+
+
     
     wide_ibox = t2_cnf["wide_ibox"]  # min ibox for wide snr thresholding
     min_snr_t2out = t2_cnf["min_snr_t2out"]  # write T2 output cand file above this snr

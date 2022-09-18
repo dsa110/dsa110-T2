@@ -24,7 +24,7 @@ nfrb=20
 
 print(f"Starting loop over {nfrb} injections with name {fn} at MJD: {Time.now().mjd}")
 
-for zz in range(1):
+for zz in range(10000):
     for kk in range(17,21):
         for ii in range(nfrb):
             f = open(fnout,'a')

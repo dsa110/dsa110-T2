@@ -164,6 +164,7 @@ def parse_socket(
             gulp_status(2)
             continue
         else:
+            gulp = set(gulps).pop()  # get gulp number
             ds.put_dict(
                 "/mon/service/T2gulp",
                 {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
@@ -181,6 +182,7 @@ def parse_socket(
             lastname,trigtime = cluster_and_plot(
                 tab,
                 globct,
+                gulp=gulp,
                 selectcols=selectcols,
                 outroot=outroot,
                 plot_dir=plot_dir,
@@ -210,20 +212,21 @@ def parse_socket(
 
 
 def cluster_and_plot(
-    tab,
-    globct,
-    selectcols=["itime", "idm", "ibox", "ibeam"],
-    outroot=None,
-    plot_dir=None,
-    trigger=False,
-    lastname=None,
-    max_ncl=None,
-    cat=None,
-    beam_model=None,
-    coords=None,
-    snrs=None,
-    prev_trig_time=None
-):
+        tab,
+        globct,
+        gulp=None,
+        selectcols=["itime", "idm", "ibox", "ibeam"],
+        outroot=None,
+        plot_dir=None,
+        trigger=False,
+        lastname=None,
+        max_ncl=None,
+        cat=None,
+        beam_model=None,
+        coords=None,
+        snrs=None,
+        prev_trig_time=None
+    ):
     """
     Run clustering and plotting on read data.
     Can optionally save clusters as heimdall candidate table before filtering and json version of buffer trigger.
@@ -265,8 +268,6 @@ def cluster_and_plot(
             min_dm = max(50., dm_mw*0.75)
         except:
             min_dm = 50.
-
-
     
     wide_ibox = t2_cnf["wide_ibox"]  # min ibox for wide snr thresholding
     min_snr_t2out = t2_cnf["min_snr_t2out"]  # write T2 output cand file above this snr
@@ -331,6 +332,7 @@ def cluster_and_plot(
             tab3,
             trigger=trigger,
             lastname=lastname,
+            gulp=gulp,
             cat=cat,
             beam_model=beam_model,
             coords=coords,
@@ -368,12 +370,7 @@ def cluster_and_plot(
             os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv | tr ' ' ',' >> "+outroot+"cluster_output.csv")
             os.system("tail -n +2 "+outroot+output_mjd+".csv | tr ' ' ',' >> "+outroot+"cluster_output.csv")
         
-
-        
-
     return lastname, trigtime
-
-
 
 
 def recvall(sock, n):

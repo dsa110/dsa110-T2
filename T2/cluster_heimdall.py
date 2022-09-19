@@ -330,23 +330,24 @@ def get_nbeams(tab, threshold=7.5):
 
 
 def dump_cluster_results_json(
-    tab,
-    outputfile=None,
-    output_cols=["mjds", "snr", "ibox", "dm", "ibeam", "cntb", "cntc"],
-    trigger=False,
-    lastname=None,
-    cat=None,
-    beam_model=None,
-    coords=None,
-    snrs=None,
-    outroot="",
-    nbeams=0,
-    max_nbeams=70,
-    frac_wide=0.0,
-    injectionfile='/home/ubuntu/injection_list.txt',
-    prev_trig_time=None,
-    min_timedelt=1.    
-):
+        tab,
+        outputfile=None,
+        output_cols=["mjds", "snr", "ibox", "dm", "ibeam", "cntb", "cntc"],
+        trigger=False,
+        lastname=None,
+        gulp=None,
+        cat=None,
+        beam_model=None,
+        coords=None,
+        snrs=None,
+        outroot="",
+        nbeams=0,
+        max_nbeams=70,
+        frac_wide=0.0,
+        injectionfile='/home/ubuntu/injection_list.txt',
+        prev_trig_time=None,
+        min_timedelt=1.    
+    ):
     """
     Takes tab from parse_candsfile and clsnr from get_peak,
     json file will be named with generated name, unless outputfile is set
@@ -392,7 +393,6 @@ def dump_cluster_results_json(
         sel = sel_t*sel_dm*sel_beam
         if len(np.where(sel)[0]):
             isinjection = True
-            
 
     if isinjection:
         basename = names.increment_name(mjd, lastname=lastname)
@@ -423,7 +423,10 @@ def dump_cluster_results_json(
         output_dict[candname]["dec"],
     ) = get_radec(beamnum=127)  # quick and dirty
 
-    if isinjection:
+    if gulp is not None:
+        output_dict[candname]["gulp"] = gulp
+
+    if isinjection:  # add in any case?
         output_dict[candname]['injected'] = isinjection
 
     nbeams_condition = False

@@ -17,6 +17,7 @@ from dsautils import cnf, dsa_store, dsa_syslog
 from etcd3.exceptions import ConnectionFailedError
 from event import names
 import os
+import pandas
 
 ds = dsa_store.DsaStore()
 logger = dsa_syslog.DsaSyslogger()
@@ -366,9 +367,22 @@ def cluster_and_plot(
             os.system("cat "+output_file+" >> "+outroot+output_mjd+".csv")
             os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
-            os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
-            #os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv | tr ' ' ',' >> "+outroot+"cluster_output.csv")
-            os.system("tail -n +2 "+outroot+output_mjd+".csv | tr ' ' ',' >> "+outroot+"cluster_output.csv")
+            fl1 = outroot+old_mjd+".csv"
+            fl2 = outroot+output_mjd+".csv"
+            ofl = outroot+"cluster_output.csv"
+            try:
+                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None)
+                b = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None)
+                c = np.concatenate((a,b),axis=0)
+            except:
+                c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None)
+            p = pandas.DataFrame(c)
+            p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+            p.to_csv(ofl,index=False)
+            
+            #os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
+            #os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv >> "+outroot+"cluster_output.csv")
+            #os.system("tail -n +2 "+outroot+output_mjd+".csv >> "+outroot+"cluster_output.csv")
 
     return lastname, trigtime
 

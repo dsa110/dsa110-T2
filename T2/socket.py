@@ -240,14 +240,19 @@ def cluster_and_plot(
     # TODO: put these in json config file
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
-    #min_dm = t2_cnf["min_dm"]  # smallest dm in filtering
-    max_ibox = t2_cnf["max_ibox"]  # largest ibox in filtering
+
     # obtain this from etcd
     # TODO: try a timeout exception
+    try:
+        max_ibox = ds.get_dict('/cnf/t2')["max_ibox"]  # largest ibox in filtering
+    except:
+        max_ibox = t2_cnf["max_ibox"]
+    
     try:
         min_snr = ds.get_dict('/cnf/t2')["min_snr"]  # smallest snr in filtering
     except:
         min_snr = t2_cnf["min_snr"]
+
     try:
         min_snr_wide = ds.get_dict('/cnf/t2')["min_snr_wide"]  # smallest snr in filtering
     except:
@@ -259,8 +264,8 @@ def cluster_and_plot(
     except:
         use_gal_dm = 1
 
-    if use_gal_dm==0:
-        min_dm = 50.
+    if use_gal_dm == 0:
+        min_dm = 100.
     else:
         # Take min DM to be either 0.75 times MW DM or 50., whatever
         # is higher.
@@ -371,16 +376,16 @@ def cluster_and_plot(
             fl2 = outroot+output_mjd+".csv"
             ofl = outroot+"cluster_output.csv"
             try:
-                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None)
-                b = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None)
+                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
+                b = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
                 c = np.concatenate((a,b),axis=0)
             except:
-                c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None)
+                c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
             p = pandas.DataFrame(c)
             p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
             p.to_csv(ofl,index=False)
             
-            #os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
+#os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
             #os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv >> "+outroot+"cluster_output.csv")
             #os.system("tail -n +2 "+outroot+output_mjd+".csv >> "+outroot+"cluster_output.csv")
 

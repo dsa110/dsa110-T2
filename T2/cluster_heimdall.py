@@ -8,6 +8,7 @@ import os.path
 import hdbscan
 import numpy as np
 from astropy import time
+import astropy.units as unts
 from astropy.io import ascii
 from astropy.io.ascii.core import InconsistentTableError
 
@@ -235,11 +236,11 @@ def get_peak(tab):
 
 def filter_clustered(
         tab,
-        min_dm=None,
-        min_snr=None,
-        min_snr_wide=None,
-        wide_ibox=None,
-        max_ibox=None,
+        min_dm=50,
+        min_snr=8,
+        min_snr_wide=9,
+        wide_ibox=17,
+        max_ibox=33,
         min_cntb=None,
         max_cntb=None,
         max_cntb0=None,
@@ -265,6 +266,7 @@ def filter_clustered(
     if min_snr is not None:
         if min_snrt is None:
 #            good *= tab["snr"] > min_snr
+            print(min_snr, wide_ibox, min_snr_wide)
             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
             good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
             good *= good0 + good1
@@ -328,21 +330,24 @@ def get_nbeams(tab, threshold=7.5):
 
 
 def dump_cluster_results_json(
-    tab,
-    outputfile=None,
-    output_cols=["mjds", "snr", "ibox", "dm", "ibeam", "cntb", "cntc"],
-    trigger=False,
-    lastname=None,
-    cat=None,
-    beam_model=None,
-    coords=None,
-    snrs=None,
-    outroot="",
-    nbeams=0,
-    max_nbeams=100,
-    frac_wide=0.0,
-    injectionfile='/home/ubuntu/injection_list.txt'
-):
+        tab,
+        outputfile=None,
+        output_cols=["mjds", "snr", "ibox", "dm", "ibeam", "cntb", "cntc"],
+        trigger=False,
+        lastname=None,
+        gulp=None,
+        cat=None,
+        beam_model=None,
+        coords=None,
+        snrs=None,
+        outroot="",
+        nbeams=0,
+        max_nbeams=70,
+        frac_wide=0.0,
+        injectionfile='/home/ubuntu/injection_list.txt',
+        prev_trig_time=None,
+        min_timedelt=1.    
+    ):
     """
     Takes tab from parse_candsfile and clsnr from get_peak,
     json file will be named with generated name, unless outputfile is set
@@ -371,8 +376,12 @@ def dump_cluster_results_json(
     isinjection = False
     if injectionfile is not None:
         # check candidate against injectionfile
-        tab_inj = ascii.read(injectionfile)
-        assert all([col in tab_inj.columns for col in ["MJD", "Beam", "DM", "SNR", "FRBno"]])
+        try:
+            tab_inj = ascii.read(injectionfile)
+        except:
+            tab_inj = ascii.read(injectionfile, names="MJD   Beam   DM    SNR   Width_fwhm   spec_ind  FRBno".split())
+        finally:
+            assert all([col in tab_inj.columns for col in ["MJD", "Beam", "DM", "SNR", "FRBno"]])
 
         # is candidate proximal to any in tab_inj?
         t_close = 20 # seconds  TODO: why not 1 sec?
@@ -398,7 +407,7 @@ def dump_cluster_results_json(
 
     output_dict = {candname: {}}
     if outputfile is None:
-        outputfile = f"{outroot}{candname}.json"
+        outputfile = f"{outroot}cluster_output{candname}.json"
 
     row = tab[imaxsnr]
     red_tab = tab[imaxsnr : imaxsnr + 1]
@@ -412,7 +421,13 @@ def dump_cluster_results_json(
     (
         output_dict[candname]["ra"],
         output_dict[candname]["dec"],
-    ) = get_radec()  # quick and dirty
+    ) = get_radec(beamnum=127)  # quick and dirty
+
+    if gulp is not None:
+        output_dict[candname]["gulp"] = gulp
+
+    if isinjection:  # add in any case?
+        output_dict[candname]['injected'] = isinjection
 
     nbeams_condition = False
     print(f"Checking nbeams condition: {nbeams}>{max_nbeams}")
@@ -435,6 +450,13 @@ def dump_cluster_results_json(
                 red_tab, coords, snrs, beam_model=beam_model, do_check=False
             )
             if len(tab_checked):
+
+                if prev_trig_time is not None:
+                    if time.Time.now()-prev_trig_time < min_timedelt*unts.s:
+                        print(f"Not triggering because of short wait time")
+                        logger.info(f"Not triggering because of short wait time")
+                        return None, candname, None
+                        
                 with open(outputfile, "w") as f:  # encoding='utf-8'
                     print(
                         f"Writing trigger file for index {imaxsnr} with SNR={maxsnr}"
@@ -446,15 +468,22 @@ def dump_cluster_results_json(
 
                 if trigger:  #  and not isinjection ?
                     send_trigger(output_dict=output_dict)
+                    trigtime = time.Time.now()
 
-                return row, candname
+                return row, candname, trigtime
 
             else:
                 print(f"Not triggering on source in beam")
                 logger.info(f"Not triggering on source in beam")
-                return None, candname
+                return None, candname, None
 
         else:
+            if prev_trig_time is not None:
+                if time.Time.now()-prev_trig_time < min_timedelt*unts.s:
+                    print(f"Not triggering because of short wait time")
+                    logger.info(f"Not triggering because of short wait time")
+                    return None, candname, None
+                
             with open(outputfile, "w") as f:  # encoding='utf-8'
                 print(
                     f"Writing trigger file for index {imaxsnr} with SNR={maxsnr}"
@@ -466,8 +495,9 @@ def dump_cluster_results_json(
 
             if trigger:  # and not isinjection ?
                 send_trigger(output_dict=output_dict)
+                trigtime = time.Time.now()
 
-            return row, candname
+            return row, candname, trigtime
 
     else:
         print(
@@ -476,10 +506,10 @@ def dump_cluster_results_json(
         logger.info(
             f"Not triggering on block with {len(tab)} candidates and nbeams {nbeams}>{max_nbeams} beam count sum"
         )
-        return None, lastname
+        return None, lastname, None
 
     print("Not triggering on nbeams condition")
-    return None, lastname
+    return None, lastname, None
 
 
 def get_radec(mjd=None, beamnum=None):
@@ -562,4 +592,9 @@ def dump_cluster_results_heimdall(
         print("max_ncl not set. Not filtering heimdall output file.")
 
     if len(tab) > 0:
-        tab.write(outputfile, format="ascii.no_header")
+        tab.write(outputfile, format="ascii.no_header", overwrite=True)
+        return True
+
+    return False
+        
+    

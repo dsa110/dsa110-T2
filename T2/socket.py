@@ -17,6 +17,7 @@ from dsautils import cnf, dsa_store, dsa_syslog
 from etcd3.exceptions import ConnectionFailedError
 from event import names
 import os
+import pandas
 
 ds = dsa_store.DsaStore()
 logger = dsa_syslog.DsaSyslogger()
@@ -164,6 +165,7 @@ def parse_socket(
             gulp_status(2)
             continue
         else:
+            gulp = set(gulps).pop()  # get gulp number
             ds.put_dict(
                 "/mon/service/T2gulp",
                 {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
@@ -181,6 +183,7 @@ def parse_socket(
             lastname,trigtime = cluster_and_plot(
                 tab,
                 globct,
+                gulp=gulp,
                 selectcols=selectcols,
                 outroot=outroot,
                 plot_dir=plot_dir,
@@ -210,20 +213,21 @@ def parse_socket(
 
 
 def cluster_and_plot(
-    tab,
-    globct,
-    selectcols=["itime", "idm", "ibox", "ibeam"],
-    outroot=None,
-    plot_dir=None,
-    trigger=False,
-    lastname=None,
-    max_ncl=None,
-    cat=None,
-    beam_model=None,
-    coords=None,
-    snrs=None,
-    prev_trig_time=None
-):
+        tab,
+        globct,
+        gulp=None,
+        selectcols=["itime", "idm", "ibox", "ibeam"],
+        outroot=None,
+        plot_dir=None,
+        trigger=False,
+        lastname=None,
+        max_ncl=None,
+        cat=None,
+        beam_model=None,
+        coords=None,
+        snrs=None,
+        prev_trig_time=None
+    ):
     """
     Run clustering and plotting on read data.
     Can optionally save clusters as heimdall candidate table before filtering and json version of buffer trigger.
@@ -236,14 +240,19 @@ def cluster_and_plot(
     # TODO: put these in json config file
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
-    #min_dm = t2_cnf["min_dm"]  # smallest dm in filtering
-    max_ibox = t2_cnf["max_ibox"]  # largest ibox in filtering
+
     # obtain this from etcd
     # TODO: try a timeout exception
+    try:
+        max_ibox = ds.get_dict('/cnf/t2')["max_ibox"]  # largest ibox in filtering
+    except:
+        max_ibox = t2_cnf["max_ibox"]
+    
     try:
         min_snr = ds.get_dict('/cnf/t2')["min_snr"]  # smallest snr in filtering
     except:
         min_snr = t2_cnf["min_snr"]
+
     try:
         min_snr_wide = ds.get_dict('/cnf/t2')["min_snr_wide"]  # smallest snr in filtering
     except:
@@ -255,8 +264,8 @@ def cluster_and_plot(
     except:
         use_gal_dm = 1
 
-    if use_gal_dm==0:
-        min_dm = 50.
+    if use_gal_dm == 0:
+        min_dm = 100.
     else:
         # Take min DM to be either 0.75 times MW DM or 50., whatever
         # is higher.
@@ -265,8 +274,6 @@ def cluster_and_plot(
             min_dm = max(50., dm_mw*0.75)
         except:
             min_dm = 50.
-
-
     
     wide_ibox = t2_cnf["wide_ibox"]  # min ibox for wide snr thresholding
     min_snr_t2out = t2_cnf["min_snr_t2out"]  # write T2 output cand file above this snr
@@ -331,6 +338,7 @@ def cluster_and_plot(
             tab3,
             trigger=trigger,
             lastname=lastname,
+            gulp=gulp,
             cat=cat,
             beam_model=beam_model,
             coords=coords,
@@ -364,16 +372,24 @@ def cluster_and_plot(
             os.system("cat "+output_file+" >> "+outroot+output_mjd+".csv")
             os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
-            os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
-            os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv | tr ' ' ',' >> "+outroot+"cluster_output.csv")
-            os.system("tail -n +2 "+outroot+output_mjd+".csv | tr ' ' ',' >> "+outroot+"cluster_output.csv")
-        
-
-        
+            fl1 = outroot+old_mjd+".csv"
+            fl2 = outroot+output_mjd+".csv"
+            ofl = outroot+"cluster_output.csv"
+            try:
+                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
+                b = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
+                c = np.concatenate((a,b),axis=0)
+            except:
+                c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
+            p = pandas.DataFrame(c)
+            p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+            p.to_csv(ofl,index=False)
+            
+#os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
+            #os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv >> "+outroot+"cluster_output.csv")
+            #os.system("tail -n +2 "+outroot+output_mjd+".csv >> "+outroot+"cluster_output.csv")
 
     return lastname, trigtime
-
-
 
 
 def recvall(sock, n):

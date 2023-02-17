@@ -342,7 +342,7 @@ def dump_cluster_results_json(
         snrs=None,
         outroot="",
         nbeams=0,
-        max_nbeams=70,
+        max_nbeams=40,
         frac_wide=0.0,
         injectionfile='/home/ubuntu/injection_list.txt',
         prev_trig_time=None,

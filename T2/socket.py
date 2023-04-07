@@ -12,7 +12,7 @@ import datetime
 import time
 
 from astropy.time import Time
-import astropy.units as unts
+import astropy import units
 from dsautils import cnf, dsa_store, dsa_syslog
 from etcd3.exceptions import ConnectionFailedError
 from event import names
@@ -70,6 +70,7 @@ def parse_socket(
     assert isinstance(ports, list)
 
     lastname = names.get_lastname()
+    lastname_cleared = lastname
 
     ss = []
 
@@ -178,6 +179,11 @@ def parse_socket(
             gulp_status(0)
             continue
 
+        # send flush trigger after min_timedelt (once per candidate)
+        if time.Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
+            d.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
+            lastname_cleared = lastname   # reset to avoid continuous calls
+            prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
         try:
             tab = cluster_heimdall.parse_candsfile(candsfile)
             lastname,trigtime = cluster_and_plot(

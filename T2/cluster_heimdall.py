@@ -8,7 +8,7 @@ import os.path
 import hdbscan
 import numpy as np
 from astropy import time
-import astropy.units as unts
+import astropy import units
 from astropy.io import ascii
 from astropy.io.ascii.core import InconsistentTableError
 
@@ -449,7 +449,7 @@ def dump_cluster_results_json(
             if len(tab_checked):
 
                 if prev_trig_time is not None:
-                    if time.Time.now()-prev_trig_time < min_timedelt*unts.s:
+                    if time.Time.now()-prev_trig_time < min_timedelt*units.s:
                         print(f"Not triggering because of short wait time")
                         logger.info(f"Not triggering because of short wait time")
                         return None, candname, None
@@ -476,7 +476,7 @@ def dump_cluster_results_json(
 
         else:
             if prev_trig_time is not None:
-                if time.Time.now()-prev_trig_time < min_timedelt*unts.s:
+                if time.Time.now()-prev_trig_time < min_timedelt*units.s:
                     print(f"Not triggering because of short wait time")
                     logger.info(f"Not triggering because of short wait time")
                     return None, candname, None

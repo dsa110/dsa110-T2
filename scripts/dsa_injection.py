@@ -20,11 +20,11 @@ params = np.genfromtxt('/home/ubuntu/simulated_frb_params.txt')
 flist = glob.glob('/home/ubuntu/data/test_inj*.dat')
 flist = ['/home/ubuntu/data/test_inj_0010.dat','/home/ubuntu/data/test_inj_0008.dat']
 nfrb = len(flist)
-nfrb=200
+nfrb=20
 
 print(f"Starting loop over {nfrb} injections with names {flist[0]} and {flist[1]} at MJD: {Time.now().mjd}")
 
-for zz in range(100):
+for zz in range(1000000):
     for kk in range(17,21):
         for ii in range(nfrb):
             f = open(fnout,'a')

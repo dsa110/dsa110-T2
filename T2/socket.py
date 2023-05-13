@@ -383,7 +383,15 @@ def cluster_and_plot(
             ofl = outroot+"cluster_output.csv"
             try:
                 a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
+                p = pandas.DataFrame(a)  # overwrite in correct format
+                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+                p.to_csv(fl1,index=False)
+
                 b = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
+                p = pandas.DataFrame(b)  # overwrite in correct format
+                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+                p.to_csv(fl2,index=False)
+
                 c = np.concatenate((a,b),axis=0)
             except:
                 c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')

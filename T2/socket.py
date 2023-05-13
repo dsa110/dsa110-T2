@@ -12,7 +12,7 @@ import datetime
 import time
 
 from astropy.time import Time
-import astropy import units
+from astropy import units
 from dsautils import cnf, dsa_store, dsa_syslog
 from etcd3.exceptions import ConnectionFailedError
 from event import names

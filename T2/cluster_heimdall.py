@@ -7,8 +7,7 @@ import os.path
 # from sklearn import cluster  # for dbscan
 import hdbscan
 import numpy as np
-from astropy import time
-import astropy import units
+from astropy import time, units
 from astropy.io import ascii
 from astropy.io.ascii.core import InconsistentTableError
 

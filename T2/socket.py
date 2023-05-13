@@ -9,7 +9,6 @@ try:
 except ModuleNotFoundError:
     print("not importing triggering")
 import datetime
-import time
 
 from astropy.time import Time
 from astropy import units
@@ -180,7 +179,7 @@ def parse_socket(
             continue
 
         # send flush trigger after min_timedelt (once per candidate)
-        if time.Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
+        if Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
             d.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
             lastname_cleared = lastname   # reset to avoid continuous calls
             prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window

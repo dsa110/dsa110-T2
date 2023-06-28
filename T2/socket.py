@@ -247,7 +247,8 @@ def cluster_and_plot(
     # TODO: put these in json config file
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
-
+    columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+    
     # obtain this from etcd
     # TODO: try a timeout exception
     try:
@@ -375,29 +376,35 @@ def cluster_and_plot(
             a = Time.now().mjd
             output_mjd = str(int(a))
             old_mjd = str(int(a)-1)
-            
-            os.system("cat "+output_file+" >> "+outroot+output_mjd+".csv")
-            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
-
             fl1 = outroot+old_mjd+".csv"
             fl2 = outroot+output_mjd+".csv"
             ofl = outroot+"cluster_output.csv"
-            try:
-                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-                p = pandas.DataFrame(a)  # overwrite in correct format
-                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-                p.to_csv(fl1,index=False)
 
-                b = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-                p = pandas.DataFrame(b)  # overwrite in correct format
-                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-                p.to_csv(fl2,index=False)
+#            os.system("cat "+output_file+" >> "+outroot+output_mjd+".csv")
+#            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
-                c = np.concatenate((a,b),axis=0)
-            except:
-                c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-            p = pandas.DataFrame(c)
-            p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+            df0 = pandas.read_csv(output_file, delimiter=' ', names=columns)
+            df1 = pandas.read_csv(fl1, names=columns)
+            df2 = pandas.read_csv(fl2, names=columns)
+
+#            try:
+#                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
+#                p = pandas.DataFrame(a)  # overwrite in correct format
+#                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+#                p.to_csv(fl1,index=False)
+#
+#                b = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
+#                p = pandas.DataFrame(b)  # overwrite in correct format
+#                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+#                p.to_csv(fl2,index=False)
+#
+#                c = np.concatenate((a,b),axis=0)
+#            except:
+#                c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
+
+            dfc = np.concatenate((df0, df1, df2),axis=0)
+#            p = pandas.DataFrame(c)
+#            p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
             p.to_csv(ofl,index=False)
             
 #os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")

@@ -382,8 +382,8 @@ def cluster_and_plot(
 #            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
             df0 = pandas.read_csv(output_file, delimiter=' ', names=columns)
-            df1 = pandas.read_csv(fl1, delimiter=' ', names=columns)
-            df2 = pandas.read_csv(fl2, delimiter=' ', names=columns)
+            df1 = pandas.read_csv(fl1)
+            df2 = pandas.read_csv(fl2)
 
 #            try:
 #                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')

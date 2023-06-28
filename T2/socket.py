@@ -384,8 +384,8 @@ def cluster_and_plot(
 #            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
             df0 = pandas.read_csv(output_file, delimiter=' ', names=columns)
-            df1 = pandas.read_csv(fl1, names=columns)
-            df2 = pandas.read_csv(fl2, names=columns)
+            df1 = pandas.read_csv(fl1, delimiter=' ', names=columns)
+            df2 = pandas.read_csv(fl2, delimiter=' ', names=columns)
 
 #            try:
 #                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
@@ -402,10 +402,13 @@ def cluster_and_plot(
 #            except:
 #                c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
 
-            dfc = np.concatenate((df0, df1, df2),axis=0)
 #            p = pandas.DataFrame(c)
 #            p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-            p.to_csv(ofl,index=False)
+
+             dfc = pandas.concat((df0, df1, df2))
+             dfc.to_csv(ofl, index=False)
+             dfc2 = pandas.concat( (df0, df2) )
+             dfc2.to_csv(fl1, index=False)
             
 #os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
             #os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv >> "+outroot+"cluster_output.csv")

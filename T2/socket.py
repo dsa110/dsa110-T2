@@ -323,10 +323,8 @@ def cluster_and_plot(
 #        print("here", ibox64_cnt, tab2["ibox"])
         if ibox64_cnt > 0.85 and len(tab2["ibox"]) > 15:
             ibox64_filter = True
-            print("ibox64 filter")
 
     # Done
-    print(min_snr, wide_ibox, min_snr_wide)
     tab3 = cluster_heimdall.filter_clustered(
         tab2,
         min_dm=min_dm,

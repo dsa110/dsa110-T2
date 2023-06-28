@@ -403,10 +403,10 @@ def cluster_and_plot(
 #            p = pandas.DataFrame(c)
 #            p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
 
-             dfc = pandas.concat((df0, df1, df2))
-             dfc.to_csv(ofl, index=False)
-             dfc2 = pandas.concat( (df0, df2) )
-             dfc2.to_csv(fl1, index=False)
+            dfc = pandas.concat((df0, df1, df2))
+            dfc.to_csv(ofl, index=False)
+            dfc2 = pandas.concat( (df0, df2) )
+            dfc2.to_csv(fl2, index=False)
             
 #os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
             #os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv >> "+outroot+"cluster_output.csv")

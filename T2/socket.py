@@ -382,9 +382,13 @@ def cluster_and_plot(
 #            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
             df0 = pandas.read_csv(output_file, delimiter=' ', names=columns)
-            df1 = pandas.read_csv(fl1)
-            dfs = [df0, df1]
-            if os.path.exists(fl2):
+
+            dfs = [df0]
+            if os.path.exists(fl1):  # accumulate to yesterday's for rolling 2-day file
+                df1 = pandas.read_csv(fl1)
+                dfs = dfs.append(df1)
+
+            if os.path.exists(fl2):  # accumulate to today's for 1-day file
                 df2 = pandas.read_csv(fl2)
                 dfs.append(df2)
                 dfc2 = pandas.concat( (df0, df2) )

@@ -386,7 +386,7 @@ def cluster_and_plot(
             dfs = [df0]
             if os.path.exists(fl1):  # accumulate to yesterday's for rolling 2-day file
                 df1 = pandas.read_csv(fl1)
-                dfs = dfs.append(df1)
+                dfs.append(df1)
 
             if os.path.exists(fl2):  # accumulate to today's for 1-day file
                 df2 = pandas.read_csv(fl2)

@@ -182,7 +182,7 @@ def parse_socket(
 
         # send flush trigger after min_timedelt (once per candidate)
         if Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
-            d.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
+            ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
             lastname_cleared = lastname   # reset to avoid continuous calls
             prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
         try:
@@ -382,8 +382,22 @@ def cluster_and_plot(
 #            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
             df0 = pandas.read_csv(output_file, delimiter=' ', names=columns)
-            df1 = pandas.read_csv(fl1)
-            df2 = pandas.read_csv(fl2)
+
+            dfs = [df0]
+            if os.path.exists(fl1):  # accumulate to yesterday's for rolling 2-day file
+                df1 = pandas.read_csv(fl1)
+                dfs.append(df1)
+
+            if os.path.exists(fl2):  # accumulate to today's for 1-day file
+                df2 = pandas.read_csv(fl2)
+                dfs.append(df2)
+                dfc2 = pandas.concat( (df0, df2) )
+                dfc2.to_csv(fl2, index=False)
+            else:
+                df0.to_csv(fl2, index=False)
+
+            dfc = pandas.concat(dfs)
+            dfc.to_csv(ofl, index=False)
 
 #            try:
 #                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
@@ -403,10 +417,6 @@ def cluster_and_plot(
 #            p = pandas.DataFrame(c)
 #            p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
 
-            dfc = pandas.concat((df0, df1, df2))
-            dfc.to_csv(ofl, index=False)
-            dfc2 = pandas.concat( (df0, df2) )
-            dfc2.to_csv(fl2, index=False)
             
 #os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
             #os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv >> "+outroot+"cluster_output.csv")

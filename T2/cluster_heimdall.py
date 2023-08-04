@@ -283,6 +283,7 @@ def filter_clustered(
     if min_dm is not None:
         good *= tab["dm"] > min_dm
     if max_ibox is not None:
+        print(f"using max_ibox {max_ibox}")
         good *= tab["ibox"] < max_ibox
     if min_cntb is not None:
         good *= tab["cntb"] > min_cntb

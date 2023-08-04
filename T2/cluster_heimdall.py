@@ -265,7 +265,6 @@ def filter_clustered(
     if min_snr is not None:
         if min_snrt is None:
 #            good *= tab["snr"] > min_snr
-            print(min_snr, wide_ibox, min_snr_wide)
             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
             good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
             good *= good0 + good1

@@ -8,7 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.8.1"
 astropy = "^5.2.2"
-hdbscan = "^0.8.29"
+hdbscan = "^0.8.31"
 pandas = "^2.0.1"
 numpy = "^1.24.3"
 seaborn = "^0.12.2"

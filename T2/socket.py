@@ -185,6 +185,7 @@ def parse_socket(
             ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
             lastname_cleared = lastname   # reset to avoid continuous calls
             prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
+
         try:
             tab = cluster_heimdall.parse_candsfile(candsfile)
             lastname,trigtime = cluster_and_plot(

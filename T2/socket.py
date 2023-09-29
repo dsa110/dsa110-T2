@@ -291,6 +291,9 @@ def cluster_and_plot(
     max_cntb = t2_cnf["max_ctb"]
     #target_params = (50.0, 100.0, 20.0)  # Galactic bursts
     target_params = None
+
+    ind = np.where(tab["ibox"]<32)[0]
+    tab = tab[ind]
     
     # cluster
     cluster_heimdall.cluster_data(

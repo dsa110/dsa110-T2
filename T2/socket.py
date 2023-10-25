@@ -185,6 +185,7 @@ def parse_socket(
             ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
             lastname_cleared = lastname   # reset to avoid continuous calls
             prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
+
         try:
             tab = cluster_heimdall.parse_candsfile(candsfile)
             lastname,trigtime = cluster_and_plot(
@@ -291,6 +292,9 @@ def cluster_and_plot(
     max_cntb = t2_cnf["max_ctb"]
     #target_params = (50.0, 100.0, 20.0)  # Galactic bursts
     target_params = None
+
+    ind = np.where(tab["ibox"]<32)[0]
+    tab = tab[ind]
     
     # cluster
     cluster_heimdall.cluster_data(
@@ -304,25 +308,11 @@ def cluster_and_plot(
     nbeams_queue.append(nbeams_gulp)
     print(f"nbeams_queue: {nbeams_queue}")
 
-    # Liam edit to preserve real FRBs during RFI storm:
-    # if nbeam > 100 and frac_wide < 0.8: do not discard
-    maxsnr = tab["snr"].max()
-    imaxsnr = np.where(tab["snr"] == maxsnr)[0][0]
-    cl_max = tab["cl"][imaxsnr]
-    frac_wide = np.sum(tab["ibox"][tab["cl"] == cl_max] >= 32) / float(
-        len(tab["ibox"][tab["cl"] == cl_max])
-    )
-
-    if len(tab["ibox"][tab["cl"] == cl_max]) == 1:
-        frac_wide = 0.0
-
     # Width filter for false positives
     ibox64_filter = False
     if len(tab2):
-        ibox64_cnt = np.sum(tab2["ibox"] == 64) / float(len(tab2["ibox"]))
-#        print("here", ibox64_cnt, tab2["ibox"])
-        if ibox64_cnt > 0.85 and len(tab2["ibox"]) > 15:
-            ibox64_filter = True
+        ind = np.where(tab2["ibox"]<32)[0]
+        tab2 = tab2[ind]
 
     # Done
     tab3 = cluster_heimdall.filter_clustered(
@@ -351,7 +341,6 @@ def cluster_and_plot(
             snrs=snrs,
             outroot=outroot,
             nbeams=sum(nbeams_queue),
-            frac_wide=frac_wide,
             prev_trig_time=prev_trig_time,
             min_timedelt=min_timedelt
         )

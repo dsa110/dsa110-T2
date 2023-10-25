@@ -393,6 +393,9 @@ def dump_cluster_results_json(
         if len(np.where(sel)[0]):
             isinjection = True
 
+        if time.Time.now().mjd - mjd > 13:
+            logger.warning("Event MJD is {mjd}, which is more than 13 days in the past. SNAP counter overflow?")
+
     if isinjection:
         basename = names.increment_name(mjd, lastname=lastname)
         candname = f"{basename}_inj{tab_inj[sel]['FRBno'][0]}"
@@ -462,7 +465,7 @@ def dump_cluster_results_json(
                     )
                     json.dump(output_dict, f, ensure_ascii=False, indent=4)
 
-                if trigger:  #  and not isinjection ?
+                if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                     send_trigger(output_dict=output_dict)
                     trigtime = time.Time.now()
 
@@ -489,7 +492,7 @@ def dump_cluster_results_json(
                 )
                 json.dump(output_dict, f, ensure_ascii=False, indent=4)
 
-            if trigger:  # and not isinjection ?
+            if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                 send_trigger(output_dict=output_dict)
                 trigtime = time.Time.now()
 

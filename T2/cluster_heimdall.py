@@ -7,8 +7,7 @@ import os.path
 # from sklearn import cluster  # for dbscan
 import hdbscan
 import numpy as np
-from astropy import time
-import astropy.units as unts
+from astropy import time, units
 from astropy.io import ascii
 from astropy.io.ascii.core import InconsistentTableError
 
@@ -266,7 +265,6 @@ def filter_clustered(
     if min_snr is not None:
         if min_snrt is None:
 #            good *= tab["snr"] > min_snr
-            print(min_snr, wide_ibox, min_snr_wide)
             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
             good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
             good *= good0 + good1
@@ -285,6 +283,7 @@ def filter_clustered(
     if min_dm is not None:
         good *= tab["dm"] > min_dm
     if max_ibox is not None:
+        print(f"using max_ibox {max_ibox}")
         good *= tab["ibox"] < max_ibox
     if min_cntb is not None:
         good *= tab["cntb"] > min_cntb
@@ -342,7 +341,7 @@ def dump_cluster_results_json(
         snrs=None,
         outroot="",
         nbeams=0,
-        max_nbeams=70,
+        max_nbeams=40,
         frac_wide=0.0,
         injectionfile='/home/ubuntu/injection_list.txt',
         prev_trig_time=None,
@@ -393,6 +392,9 @@ def dump_cluster_results_json(
         sel = sel_t*sel_dm*sel_beam
         if len(np.where(sel)[0]):
             isinjection = True
+
+        if time.Time.now().mjd - mjd > 13:
+            logger.warning("Event MJD is {mjd}, which is more than 13 days in the past. SNAP counter overflow?")
 
     if isinjection:
         basename = names.increment_name(mjd, lastname=lastname)
@@ -452,7 +454,7 @@ def dump_cluster_results_json(
             if len(tab_checked):
 
                 if prev_trig_time is not None:
-                    if time.Time.now()-prev_trig_time < min_timedelt*unts.s:
+                    if time.Time.now()-prev_trig_time < min_timedelt*units.s:
                         print(f"Not triggering because of short wait time")
                         logger.info(f"Not triggering because of short wait time")
                         return None, candname, None
@@ -466,7 +468,7 @@ def dump_cluster_results_json(
                     )
                     json.dump(output_dict, f, ensure_ascii=False, indent=4)   # could replace this with DSAEvent method
 
-                if trigger:  #  and not isinjection ?
+                if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                     send_trigger(output_dict=output_dict)
                     trigtime = time.Time.now()
 
@@ -479,7 +481,7 @@ def dump_cluster_results_json(
 
         else:
             if prev_trig_time is not None:
-                if time.Time.now()-prev_trig_time < min_timedelt*unts.s:
+                if time.Time.now()-prev_trig_time < min_timedelt*units.s:
                     print(f"Not triggering because of short wait time")
                     logger.info(f"Not triggering because of short wait time")
                     return None, candname, None
@@ -493,7 +495,7 @@ def dump_cluster_results_json(
                 )
                 json.dump(output_dict, f, ensure_ascii=False, indent=4)
 
-            if trigger:  # and not isinjection ?
+            if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                 send_trigger(output_dict=output_dict)
                 trigtime = time.Time.now()
 

@@ -212,8 +212,6 @@ def filter_clustered(
         tab,
         min_dm=None,
         min_snr=None,
-        min_snr_wide=None,
-        wide_ibox=None,
         max_ibox=None,
         min_cntb=None,
         max_cntb=None,

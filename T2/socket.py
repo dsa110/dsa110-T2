@@ -229,7 +229,6 @@ def cluster_and_plot(
         plot_dir=None,
         trigger=False,
         lastname=None,
-        max_ncl=None,
         cat=None,
         beam_model=None,
         coords=None,
@@ -250,52 +249,18 @@ def cluster_and_plot(
     trigtime = None
     columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
     
-    # obtain this from etcd
-    # TODO: try a timeout exception
-    try:
-        max_ibox = ds.get_dict('/cnf/t2')["max_ibox"]  # largest ibox in filtering
-    except:
-        max_ibox = t2_cnf["max_ibox"]
-    
-    try:
-        min_snr = ds.get_dict('/cnf/t2')["min_snr"]  # smallest snr in filtering
-    except:
-        min_snr = t2_cnf["min_snr"]
-
-    try:
-        min_snr_wide = ds.get_dict('/cnf/t2')["min_snr_wide"]  # smallest snr in filtering
-    except:
-        min_snr_wide = t2_cnf["min_snr_wide"]
-
-    # adjust min dm according to t2 cnf in etcd
-    try:
-        use_gal_dm = ds.get_dict('/cnf/t2')["use_gal_dm"]
-    except:
-        use_gal_dm = 1
-
-    if use_gal_dm == 0:
-        min_dm = 100.
-    else:
-        # Take min DM to be either 0.75 times MW DM or 50., whatever
-        # is higher.
-        try:
-            dm_mw = ds.get_dict('/mon/array/gal_dm')['gal_dm']
-            min_dm = max(50., dm_mw*0.75)
-        except:
-            min_dm = 50.
-    
+    use_gal_dm = t2_cnf["use_gal_dm"]  # not used currently
+    dm_mw = t2_cnf["gal_dm"]
+    min_dm = max(50., dm_mw*0.75)
+    max_ibox = t2_cnf["max_ibox"]
+    min_snr = t2_cnf["min_snr"]
+    min_snr_wide = t2_cnf["min_snr_wide"]
     wide_ibox = t2_cnf["wide_ibox"]  # min ibox for wide snr thresholding
     min_snr_t2out = t2_cnf["min_snr_t2out"]  # write T2 output cand file above this snr
-    if max_ncl is None:
-        max_ncl = t2_cnf["max_ncl"]  # largest number of clusters allowed in triggering
     max_cntb0 = t2_cnf["max_ctb0"]
     max_cntb = t2_cnf["max_ctb"]
-    #target_params = (50.0, 100.0, 20.0)  # Galactic bursts
-    target_params = None
+    writeT1 = t2_cnf["writeT1"]
 
-    ind = np.where(tab["ibox"]<32)[0]
-    tab = tab[ind]
-    
     # cluster
     cluster_heimdall.cluster_data(
         tab,
@@ -303,18 +268,17 @@ def cluster_and_plot(
         allow_single_cluster=True,
         return_clusterer=False,
     )
+    if writeT1:
+        output_file = outroot + "T1_output" + str(np.floor(time.time()).astype("int")) + ".cand"
+        outputted = cluster_heimdall.dump_cluster_results_heimdall(tab,
+                                                                   output_file,
+                                                                   min_snr_t2out=min_snr_t2out)
+
+    # filter the peaks
     tab2 = cluster_heimdall.get_peak(tab)
     nbeams_gulp = cluster_heimdall.get_nbeams(tab2)
     nbeams_queue.append(nbeams_gulp)
     print(f"nbeams_queue: {nbeams_queue}")
-
-    # Width filter for false positives
-    ibox64_filter = False
-    if len(tab2):
-        ind = np.where(tab2["ibox"]<32)[0]
-        tab2 = tab2[ind]
-
-    # Done
     tab3 = cluster_heimdall.filter_clustered(
         tab2,
         min_dm=min_dm,
@@ -324,12 +288,11 @@ def cluster_and_plot(
         max_ibox=max_ibox,
         max_cntb=max_cntb,
         max_cntb0=max_cntb0,
-        max_ncl=max_ncl,
-        target_params=target_params,
-    )  # max_ncl rows returned
+    )
 
+    # trigger decision
     col_trigger = np.zeros(len(tab2), dtype=int)
-    if outroot is not None and len(tab3) and not ibox64_filter:
+    if outroot is not None and len(tab3):
         tab4, lastname, trigtime = cluster_heimdall.dump_cluster_results_json(
             tab3,
             trigger=trigger,
@@ -355,8 +318,7 @@ def cluster_and_plot(
         output_file = outroot + "cluster_output" + str(np.floor(time.time()).astype("int")) + ".cand"
         outputted = cluster_heimdall.dump_cluster_results_heimdall(tab2,
                                                                    output_file,
-                                                                   min_snr_t2out=min_snr_t2out,
-                                                                   max_ncl=max_ncl)
+                                                                   min_snr_t2out=min_snr_t2out)
 
         # aggregate files
         if outputted:
@@ -366,9 +328,6 @@ def cluster_and_plot(
             fl1 = outroot+old_mjd+".csv"
             fl2 = outroot+output_mjd+".csv"
             ofl = outroot+"cluster_output.csv"
-
-#            os.system("cat "+output_file+" >> "+outroot+output_mjd+".csv")
-#            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
             df0 = pandas.read_csv(output_file, delimiter=' ', names=columns)
 
@@ -387,29 +346,6 @@ def cluster_and_plot(
 
             dfc = pandas.concat(dfs)
             dfc.to_csv(ofl, index=False)
-
-#            try:
-#                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-#                p = pandas.DataFrame(a)  # overwrite in correct format
-#                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-#                p.to_csv(fl1,index=False)
-#
-#                b = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-#                p = pandas.DataFrame(b)  # overwrite in correct format
-#                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-#                p.to_csv(fl2,index=False)
-#
-#                c = np.concatenate((a,b),axis=0)
-#            except:
-#                c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-
-#            p = pandas.DataFrame(c)
-#            p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-
-            
-#os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
-            #os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv >> "+outroot+"cluster_output.csv")
-            #os.system("tail -n +2 "+outroot+output_mjd+".csv >> "+outroot+"cluster_output.csv")
 
     return lastname, trigtime
 

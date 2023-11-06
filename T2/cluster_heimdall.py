@@ -41,8 +41,6 @@ def parse_candsfile(candsfile):
     else:
         ncands = len(candsfile.split("\n")) - 1
         logger.debug(f"Received {ncands} candidates")
-    #    candsfile = '\n'.join([line for line in candsfile.split('\n') if line.count(' ') == 7])
-    #    print(f'Received {ncands0} candidates, removed {ncands0-ncands} lines.')
     col_heimdall = ["snr", "if", "itime", "mjds", "ibox", "idm", "dm", "ibeam"]
     col_T2old = [
         "snr",
@@ -111,7 +109,10 @@ def parse_candsfile(candsfile):
                 logger.warning("Inconsistent table. Skipping...")
                 return ([], [], [])
 
+    # set to int type
     tab["ibeam"] = tab["ibeam"].astype(int)
+    cl = tab["cl"].astype(int)
+
     if hdfile is True:
         try:
             ret_time = (
@@ -125,11 +126,6 @@ def parse_candsfile(candsfile):
             ret_time = 55000.0
         tab["mjds"] = tab["mjds"] / 86400.0 + ret_time
 
-    #
-    #    snrs = tab['snr']
-    # how to use ibeam?
-
-    #    return tab, data, snrs
     return tab
 
 
@@ -157,8 +153,6 @@ def cluster_data(
             cluster_selection_method="eom",
             allow_single_cluster=allow_single_cluster,
         ).fit(data)
-        #        clusterer = cluster.DBSCAN(metric='chebyshev', min_samples=min_samples,
-        #                                   eps=14, algorithm='auto', leaf_size=23).fit(data)
 
         nclustered = np.max(clusterer.labels_ + 1)
         nunclustered = len(np.where(clusterer.labels_ == -1)[0])
@@ -172,10 +166,7 @@ def cluster_data(
         nclustered = 0
         nunclustered = len(cl)
 
-    #    logger.info(f'Found {nclustered} clustered and {nunclustered} unclustered rows')
-
-    # hack assumes fixed columns
-    bl = data[:, 3]
+    bl = data[:, 3]   # assuming fixed columns
     cntb, cntc = np.zeros((len(data), 1), dtype=int), np.zeros(
         (len(data), 1), dtype=int
     )
@@ -187,20 +178,12 @@ def cluster_data(
         ubl = np.unique(bl[ww])
         cntb[ww] = len(ubl)
 
-    # append useful metastats to original data
-    #    data_labeled = np.hstack((data, cl[:,None], cntb, cntc))
-    # modifies tab in place
-    tab["cl"] = cl.tolist()
+    tab["cl"] = cl.tolist()  # modify tab in place
     tab["cntc"] = cntc.flatten().tolist()
     tab["cntb"] = cntb.flatten().tolist()
 
     if return_clusterer:
-        #        return clusterer, data_labeled
         return clusterer
-
-
-#    else:
-#        return data_labeled
 
 
 def get_peak(tab):
@@ -209,13 +192,6 @@ def get_peak(tab):
     Puts unclustered candidates in as individual events.
     """
 
-    #    clsnr = []
-    #    cl = datal[:, 4].astype(int)   # hack. should really use table.
-    #    cnt_beam = datal[:, 5].astype(int)
-    #    cnt_cl = datal[:, 6].astype(int)
-    cl = tab["cl"].astype(int)
-    #    cnt_beam = tab['cntb'].astype(int)
-    #    cnt_cl = tab['cntc'].astype(int)
     snrs = tab["snr"]
     ipeak = []
     for i in np.unique(cl):
@@ -225,7 +201,6 @@ def get_peak(tab):
         maxsnr = snrs[clusterinds].max()
         imaxsnr = np.where(snrs == maxsnr)[0][0]
         ipeak.append(imaxsnr)
-    #        clsnr.append((imaxsnr, maxsnr, cnt_beam[imaxsnr], cnt_cl[imaxsnr]))
     ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # append unclustered
     logger.info(f"Found {len(ipeak)} cluster peaks")
     print(f"Found {len(ipeak)} cluster peaks")
@@ -235,55 +210,27 @@ def get_peak(tab):
 
 def filter_clustered(
         tab,
-        min_dm=50,
-        min_snr=8,
-        min_snr_wide=9,
-        wide_ibox=17,
-        max_ibox=33,
+        min_dm=None,
+        min_snr=None,
+        min_snr_wide=None,
+        wide_ibox=None,
+        max_ibox=None,
         min_cntb=None,
         max_cntb=None,
-        max_cntb0=None,
         min_cntc=None,
         max_cntc=None,
-        max_ncl=None,
-        target_params=None,
-        frac_wide=0.0,
 ):
     """Function to select a subset of clustered output.
     Can set minimum SNR, min/max number of beams in cluster, min/max total count in cluster.
-    target_params is a tuple (min_dmt, max_dmt, min_snrt) for custom snr threshold for target.
-    max_ncl is maximum number of clusters returned (sorted by SNR).
     """
-
-    if target_params is not None:
-        min_dmt, max_dmt, min_snrt = target_params
-    else:
-        min_dmt, max_dmt, min_snrt = None, None, None
 
     good = [True] * len(tab)
 
     if min_snr is not None:
-        if min_snrt is None:
-#            good *= tab["snr"] > min_snr
-            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
-            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
-            good *= good0 + good1
-        else:
-            # print(f'min_snr={min_snr}, min_snrt={min_snrt}, min_dmt={min_dmt}, max_dmt={max_dmt}, tab={tab[["snr", "dm"]]}')
-            good0 = (tab["snr"] > min_snr) * (tab["dm"] > max_dmt)
-            good1 = (tab["snr"] > min_snr) * (tab["dm"] < min_dmt)
-            good2 = (
-                (tab["snr"] > min_snrt)
-                * (tab["dm"] > min_dmt)
-                * (tab["dm"] < max_dmt)
-            )
-            good *= good0 + good1 + good2
-            # print('good0, good1, good2, good:')
-            # print(good0, good1, good2, good)
+        good = tab["snr"] > min_snr
     if min_dm is not None:
         good *= tab["dm"] > min_dm
     if max_ibox is not None:
-        print(f"using max_ibox {max_ibox}")
         good *= tab["ibox"] < max_ibox
     if min_cntb is not None:
         good *= tab["cntb"] > min_cntb
@@ -295,15 +242,6 @@ def filter_clustered(
         good *= tab["cntc"] < max_cntc
 
     tab_out = tab[good]
-
-    if max_ncl is not None:
-        if len(tab_out) > max_ncl:
-            min_snr_cl = sorted(tab_out["snr"])[-max_ncl]
-            good = tab_out["snr"] >= min_snr_cl
-            tab_out = tab_out[good]
-            print(
-                f"Limiting output to {max_ncl} clusters with snr>{min_snr_cl}."
-            )
 
     logger.info(
         f"Filtering clusters from {len(tab)} to {len(tab_out)} candidates."
@@ -342,7 +280,6 @@ def dump_cluster_results_json(
         outroot="",
         nbeams=0,
         max_nbeams=40,
-        frac_wide=0.0,
         injectionfile='/home/ubuntu/injection_list.txt',
         prev_trig_time=None,
         min_timedelt=1.    
@@ -431,15 +368,10 @@ def dump_cluster_results_json(
     if isinjection:  # add in any case?
         output_dict[candname]['injected'] = isinjection
 
-    nbeams_condition = False
     print(f"Checking nbeams condition: {nbeams}>{max_nbeams}")
+    nbeams_condition = False
     if nbeams > max_nbeams:
         nbeams_condition = True
-        # Liam edit to preserve real FRBs during RFI storm:
-        # if nbeam > max_nbeams and frac_wide < 0.8: do not discard because
-        # most FPs are wide
-        if frac_wide < 0.8:
-            nbeams_condition = False
 
     if len(tab) and nbeams_condition is False:
         print(red_tab)
@@ -449,7 +381,6 @@ def dump_cluster_results_json(
                 red_tab, coords, snrs, beam_model=beam_model, do_check=False
             )
             if len(tab_checked):
-
                 if prev_trig_time is not None:
                     if time.Time.now()-prev_trig_time < min_timedelt*units.s:
                         print(f"Not triggering because of short wait time")
@@ -507,9 +438,6 @@ def dump_cluster_results_json(
         )
         return None, lastname, None
 
-    print("Not triggering on nbeams condition")
-    return None, lastname, None
-
 
 def get_radec(mjd=None, beamnum=None):
     """Use time, beam number, and and antenna elevation to get RA, Dec of beam."""
@@ -556,14 +484,13 @@ def send_trigger(output_dict=None, outputfile=None):
 
 
 def dump_cluster_results_heimdall(
-    tab, outputfile, min_snr_t2out=None, max_ncl=None
+    tab, outputfile, min_snr_t2out=None
 ):
     """
     Takes tab from parse_candsfile and clsnr from get_peak,
     output T2-clustered results with the same columns as heimdall.cand into a file outputfile.
     The output is in pandas format with column names in the 1st row.
     min_snr_t2out is a min snr on candidates to write.
-    max_ncl is number of rows to write.
     """
 
     tab["itime"] = (tab["itime"] - offset) * downsample  # transform to specnum
@@ -576,19 +503,6 @@ def dump_cluster_results_heimdall(
             print(
                 f"Limiting output to SNR>{min_snr_t2out} with {len(tab)} clusters."
             )
-
-    if max_ncl is not None:
-        if len(tab) > max_ncl:
-            min_snr_cl = sorted(tab["snr"])[-max_ncl]
-            good = (tab["snr"] >= min_snr_cl) + [
-                str(tt) != "0" for tt in tab["trigger"]
-            ]  # keep trigger
-            tab = tab[good]
-            print(
-                f"Limiting output to {max_ncl} clusters with snr>{min_snr_cl}."
-            )
-    else:
-        print("max_ncl not set. Not filtering heimdall output file.")
 
     if len(tab) > 0:
         tab.write(outputfile, format="ascii.no_header", overwrite=True)

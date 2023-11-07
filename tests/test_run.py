@@ -71,3 +71,15 @@ def test_lastname():
     lastname2, prev_trig_time = T2.socket.cluster_and_plot(tab, 0, outroot='tests/test_', lastname=lastname)
 
     assert lastname != lastname2
+
+def test_import():
+    """
+    Test import
+    """
+
+    import T2.cluster_heimdall
+    import T2.socket
+    import T2.T2
+
+    assert True
+    

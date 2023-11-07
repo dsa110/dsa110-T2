@@ -188,7 +188,7 @@ def parse_socket(
 
         try:
             tab = cluster_heimdall.parse_candsfile(candsfile)
-            lastname,trigtime = cluster_and_plot(
+            lastname, trigtime = cluster_and_plot(
                 tab,
                 globct,
                 gulp=gulp,
@@ -249,17 +249,18 @@ def cluster_and_plot(
     trigtime = None
     columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
     
-    use_gal_dm = t2_cnf["use_gal_dm"]  # not used currently
-    dm_mw = t2_cnf["gal_dm"]
+    use_gal_dm = t2_cnf.get("use_gal_dm", None)  # not used currently
+    if use_gal_dm:
+        dm_mw = ds.get_dict('/mon/array/gal_dm')['gal_dm']
+        print(f'Using DM of {dm_mw}')
+    else:
+        dm_mw = 0
     min_dm = max(50., dm_mw*0.75)
-    max_ibox = t2_cnf["max_ibox"]
-    min_snr = t2_cnf["min_snr"]
-    min_snr_wide = t2_cnf["min_snr_wide"]
-    wide_ibox = t2_cnf["wide_ibox"]  # min ibox for wide snr thresholding
-    min_snr_t2out = t2_cnf["min_snr_t2out"]  # write T2 output cand file above this snr
-    max_cntb0 = t2_cnf["max_ctb0"]
-    max_cntb = t2_cnf["max_ctb"]
-    writeT1 = t2_cnf["writeT1"]
+    max_ibox = t2_cnf.get("max_ibox", None)
+    min_snr = t2_cnf.get("min_snr", None)
+    min_snr_t2out = t2_cnf.get("min_snr_t2out", None)  # write T2 output cand file above this snr
+    max_cntb = t2_cnf.get("max_ctb", None)
+    writeT1 = t2_cnf.get("writeT1", False)
 
     # cluster
     cluster_heimdall.cluster_data(
@@ -283,11 +284,8 @@ def cluster_and_plot(
         tab2,
         min_dm=min_dm,
         min_snr=min_snr,
-        min_snr_wide=min_snr_wide,
-        wide_ibox=wide_ibox,
         max_ibox=max_ibox,
         max_cntb=max_cntb,
-        max_cntb0=max_cntb0,
     )
 
     # trigger decision

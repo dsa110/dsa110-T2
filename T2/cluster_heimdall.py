@@ -111,7 +111,6 @@ def parse_candsfile(candsfile):
 
     # set to int type
     tab["ibeam"] = tab["ibeam"].astype(int)
-    cl = tab["cl"].astype(int)
 
     if hdfile is True:
         try:
@@ -156,13 +155,13 @@ def cluster_data(
 
         nclustered = np.max(clusterer.labels_ + 1)
         nunclustered = len(np.where(clusterer.labels_ == -1)[0])
-        cl = clusterer.labels_
+        cl = clusterer.labels_.astype(int)
     except ValueError:
         print("Clustering did not run. Each point assigned to unique cluster.")
         logger.info(
             "Clustering did not run. Each point assigned to unique cluster."
         )
-        cl = np.arange(len(data))
+        cl = np.arange(len(data), dtype=int)
         nclustered = 0
         nunclustered = len(cl)
 
@@ -193,6 +192,7 @@ def get_peak(tab):
     """
 
     snrs = tab["snr"]
+    cl = tab["cl"]
     ipeak = []
     for i in np.unique(cl):
         if i == -1:
@@ -397,6 +397,8 @@ def dump_cluster_results_json(
                 if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                     send_trigger(output_dict=output_dict)
                     trigtime = time.Time.now()
+                else:
+                    trigtime = None
 
                 return row, candname, trigtime
 
@@ -424,6 +426,8 @@ def dump_cluster_results_json(
             if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                 send_trigger(output_dict=output_dict)
                 trigtime = time.Time.now()
+            else:
+                trigtime = None
 
             return row, candname, trigtime
 

@@ -277,7 +277,7 @@ def dump_cluster_results_json(
         snrs=None,
         outroot="",
         nbeams=0,
-        max_nbeams=40,
+        nbeams_max=None,
         injectionfile='/home/ubuntu/injection_list.txt',
         prev_trig_time=None,
         min_timedelt=1.    
@@ -366,10 +366,11 @@ def dump_cluster_results_json(
     if isinjection:  # add in any case?
         output_dict[candname]['injected'] = isinjection
 
-    print(f"Checking nbeams condition: {nbeams}>{max_nbeams}")
     nbeams_condition = False
-    if nbeams > max_nbeams:
-        nbeams_condition = True
+    if nbeams_max is not None:
+        print(f"Checking nbeams condition: {nbeams}>{nbeams_max}")
+        if nbeams > nbeams_max:
+            nbeams_condition = True
 
     if len(tab) and nbeams_condition is False:
         print(red_tab)
@@ -433,10 +434,10 @@ def dump_cluster_results_json(
 
     else:
         print(
-            f"Not triggering on block with {len(tab)} candidates and nbeams {nbeams}>{max_nbeams} beam count sum"
+            f"Not triggering on block with {len(tab)} candidates and nbeams {nbeams}>{nbeams_max} beam count sum"
         )
         logger.info(
-            f"Not triggering on block with {len(tab)} candidates and nbeams {nbeams}>{max_nbeams} beam count sum"
+            f"Not triggering on block with {len(tab)} candidates and nbeams {nbeams}>{nbeams_max} beam count sum"
         )
         return None, lastname, None
 

@@ -252,7 +252,7 @@ def cluster_and_plot(
     use_gal_dm = t2_cnf.get("use_gal_dm", None)  # not used currently
     if use_gal_dm:
         dm_mw = ds.get_dict('/mon/array/gal_dm')['gal_dm']
-        print(f'Using DM of {dm_mw}')
+        logger.debug(f'Using DM of {dm_mw}')
     else:
         dm_mw = 0
     min_dm = max(50., dm_mw*0.75)
@@ -261,6 +261,7 @@ def cluster_and_plot(
     min_snr_t2out = t2_cnf.get("min_snr_t2out", None)  # write T2 output cand file above this snr
     max_cntb = t2_cnf.get("max_ctb", None)
     writeT1 = t2_cnf.get("writeT1", False)
+    nbeams_max = t2_cnf.get("nbeams_max", None)
 
     # cluster
     cluster_heimdall.cluster_data(
@@ -302,6 +303,7 @@ def cluster_and_plot(
             snrs=snrs,
             outroot=outroot,
             nbeams=sum(nbeams_queue),
+            nbeams_max=nbeams_max,
             prev_trig_time=prev_trig_time,
             min_timedelt=min_timedelt
         )

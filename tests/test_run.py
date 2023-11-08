@@ -79,7 +79,7 @@ def test_import():
 
     import T2.cluster_heimdall
     import T2.socket
-    import T2.T2
+    import T2
 
     assert True
     

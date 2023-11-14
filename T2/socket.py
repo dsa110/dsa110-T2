@@ -59,7 +59,7 @@ def parse_socket(
     """
 
     # startup time
-    min_timedelt = 60. ## TODO put this in etcd
+    min_timedelt = 10. ## TODO put this in etcd
     prev_trig_time = Time.now()
     
     if isinstance(ports, int):

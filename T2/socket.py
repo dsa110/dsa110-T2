@@ -62,9 +62,6 @@ def parse_socket(
     min_timedelt = 60. ## TODO put this in etcd
     prev_trig_time = Time.now()
     
-    # count of output - separate from gulps
-    globct = 0
-
     if isinstance(ports, int):
         ports = [ports]
 
@@ -190,7 +187,6 @@ def parse_socket(
             tab = cluster_heimdall.parse_candsfile(candsfile)
             lastname, trigtime = cluster_and_plot(
                 tab,
-                globct,
                 gulp=gulp,
                 selectcols=selectcols,
                 outroot=outroot,
@@ -205,7 +201,6 @@ def parse_socket(
             )
             if trigtime is not None:
                 prev_trig_time = trigtime
-            globct += 1
         except KeyboardInterrupt:
             print("Escaping parsing and plotting")
             logger.info("Escaping parsing and plotting")
@@ -222,7 +217,6 @@ def parse_socket(
 
 def cluster_and_plot(
         tab,
-        globct,
         gulp=None,
         selectcols=["itime", "idm", "ibox", "ibeam"],
         outroot=None,

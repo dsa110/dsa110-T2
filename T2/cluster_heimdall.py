@@ -458,6 +458,8 @@ def dump_cluster_results_json(
                         print(f"Not triggering because of short wait time")
                         logger.info(f"Not triggering because of short wait time")
                         return None, candname, None
+                    else:
+                        trigtime = None
                         
                 with open(outputfile, "w") as f:  # encoding='utf-8'
                     print(
@@ -471,6 +473,8 @@ def dump_cluster_results_json(
                 if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                     send_trigger(output_dict=output_dict)
                     trigtime = time.Time.now()
+                else:
+                    trigtime = None
 
                 return row, candname, trigtime
 
@@ -485,6 +489,8 @@ def dump_cluster_results_json(
                     print(f"Not triggering because of short wait time")
                     logger.info(f"Not triggering because of short wait time")
                     return None, candname, None
+                else:
+                    trigtime = None
                 
             with open(outputfile, "w") as f:  # encoding='utf-8'
                 print(
@@ -498,6 +504,8 @@ def dump_cluster_results_json(
             if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                 send_trigger(output_dict=output_dict)
                 trigtime = time.Time.now()
+            else:
+                trigtime = None
 
             return row, candname, trigtime
 

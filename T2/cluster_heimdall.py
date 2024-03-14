@@ -175,7 +175,7 @@ def cluster_data(
     #    logger.info(f'Found {nclustered} clustered and {nunclustered} unclustered rows')
 
     # hack assumes fixed columns
-#    bl = data[:, 3]
+    bl = data[:, 3]
     cntb, cntc = np.zeros((len(data), 1), dtype=int), np.zeros(
         (len(data), 1), dtype=int
     )
@@ -184,15 +184,15 @@ def cluster_data(
     for i in ucl:
         ww = np.where(i == cl)
         cntc[ww] = len(ww[0])   # TODO: figure out how to count for ns and ew separately
-#        ubl = np.unique(bl[ww])
-#        cntb[ww] = len(ubl)
+        ubl = np.unique(bl[ww])
+        cntb[ww] = len(ubl)
 
     # append useful metastats to original data
     #    data_labeled = np.hstack((data, cl[:,None], cntb, cntc))
     # modifies tab in place
     tab["cl"] = cl.tolist()
     tab["cntc"] = cntc.flatten().tolist()
-#    tab["cntb"] = cntb.flatten().tolist()
+    tab["cntb"] = cntb.flatten().tolist()
 
     if return_clusterer:
         #        return clusterer, data_labeled

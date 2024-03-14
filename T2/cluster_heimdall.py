@@ -175,7 +175,7 @@ def cluster_data(
     #    logger.info(f'Found {nclustered} clustered and {nunclustered} unclustered rows')
 
     # hack assumes fixed columns
-    bl = data[:, 3]
+#    bl = data[:, 3]
     cntb, cntc = np.zeros((len(data), 1), dtype=int), np.zeros(
         (len(data), 1), dtype=int
     )
@@ -183,16 +183,16 @@ def cluster_data(
 
     for i in ucl:
         ww = np.where(i == cl)
-        cntc[ww] = len(ww[0])
-        ubl = np.unique(bl[ww])
-        cntb[ww] = len(ubl)
+        cntc[ww] = len(ww[0])   # TODO: figure out how to count for ns and ew separately
+#        ubl = np.unique(bl[ww])
+#        cntb[ww] = len(ubl)
 
     # append useful metastats to original data
     #    data_labeled = np.hstack((data, cl[:,None], cntb, cntc))
     # modifies tab in place
     tab["cl"] = cl.tolist()
     tab["cntc"] = cntc.flatten().tolist()
-    tab["cntb"] = cntb.flatten().tolist()
+#    tab["cntb"] = cntb.flatten().tolist()
 
     if return_clusterer:
         #        return clusterer, data_labeled
@@ -209,23 +209,24 @@ def get_peak(tab):
     Puts unclustered candidates in as individual events.
     """
 
-    #    clsnr = []
-    #    cl = datal[:, 4].astype(int)   # hack. should really use table.
-    #    cnt_beam = datal[:, 5].astype(int)
-    #    cnt_cl = datal[:, 6].astype(int)
     cl = tab["cl"].astype(int)
-    #    cnt_beam = tab['cntb'].astype(int)
-    #    cnt_cl = tab['cntc'].astype(int)
+    ibeam = tab["ibeam"].astype(int)
     snrs = tab["snr"]
     ipeak = []
     for i in np.unique(cl):
         if i == -1:
             continue
-        clusterinds = np.where(i == cl)[0]
-        maxsnr = snrs[clusterinds].max()
-        imaxsnr = np.where(snrs == maxsnr)[0][0]
-        ipeak.append(imaxsnr)
-    #        clsnr.append((imaxsnr, maxsnr, cnt_beam[imaxsnr], cnt_cl[imaxsnr]))
+        clusterinds_ew = np.where( (i == cl) & (ibeam <= 255))[0]
+        clusterinds_ns = np.where( (i == cl) & (ibeam > 255))[0]
+        if len(clusterinds_ew):
+            maxsnr_ew = snrs[clusterinds_ew].max()
+            imaxsnr_ew = np.where(snrs == maxsnr_ew)[0][0]
+            ipeak.append(imaxsnr_ew)
+        if len(clusterinds_ns):
+            maxsnr_ns = snrs[clusterinds_ns].max()
+            imaxsnr_ns = np.where(snrs == maxsnr_ns)[0][0]
+            ipeak.append(imaxsnr_ns)
+
     ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # append unclustered
     logger.info(f"Found {len(ipeak)} cluster peaks")
     print(f"Found {len(ipeak)} cluster peaks")

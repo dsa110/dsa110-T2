@@ -7,7 +7,7 @@ import os.path
 # from sklearn import cluster  # for dbscan
 import hdbscan
 import numpy as np
-from astropy import time, units
+from astropy import time, units, table
 from astropy.io import ascii
 from astropy.io.ascii.core import InconsistentTableError
 
@@ -174,11 +174,9 @@ def cluster_data(
 
     #    logger.info(f'Found {nclustered} clustered and {nunclustered} unclustered rows')
 
-    # hack assumes fixed columns
-    bl = data[:, 3]
-    cntb, cntc = np.zeros((len(data), 1), dtype=int), np.zeros(
-        (len(data), 1), dtype=int
-    )
+    bl = tab['ibeam'].astype(int).data  # data[:, 3]  not required to use ibeam in clustering
+    cntb = np.zeros((len(data), 1), dtype=int)
+    cntc = np.zeros((len(data), 1), dtype=int)
     ucl = np.unique(cl)
 
     for i in ucl:
@@ -204,34 +202,33 @@ def cluster_data(
 
 
 def get_peak(tab):
-    """Given labeled data, find max snr row per cluster
+    """Given labeled data of search output from two arms, find max snr row per cluster
     Adds in count of candidates in same beam and same cluster.
-    Puts unclustered candidates in as individual events.
+    Only returns clusters with detections in both arms
     """
 
     cl = tab["cl"].astype(int)
-    ibeam = tab["ibeam"].astype(int)
-    snrs = tab["snr"]
-    ipeak = []
+    ipeak_ns = []
+    ipeak_ew = []
     for i in np.unique(cl):
         if i == -1:
             continue
-        clusterinds_ew = np.where( (i == cl) & (ibeam <= 255))[0]
-        clusterinds_ns = np.where( (i == cl) & (ibeam > 255))[0]
-        if len(clusterinds_ew):
-            maxsnr_ew = snrs[clusterinds_ew].max()
-            imaxsnr_ew = np.where(snrs == maxsnr_ew)[0][0]
-            ipeak.append(imaxsnr_ew)
-        if len(clusterinds_ns):
-            maxsnr_ns = snrs[clusterinds_ns].max()
-            imaxsnr_ns = np.where(snrs == maxsnr_ns)[0][0]
-            ipeak.append(imaxsnr_ns)
+        tsel = tab[tab['cl'] == i]
+        if tsel['ibeam'].max() > 255 and tsel['ibeam'].min() < 256:  # seen in both arms
+            clusterinds_ew = np.where((tsel['cl'] == i) & (tsel['ibeam'] < 256))[0]
+            clusterinds_ns = np.where((tsel['cl'] == i) & (tsel['ibeam'] > 255))[0]
+            maxsnr_ew = tsel[clusterinds_ew]['snr'].max()
+            maxsnr_ns = tsel[clusterinds_ns]['snr'].max()
+            imaxsnr_ew = np.where(tsel[clusterinds_ew]['snr'] == maxsnr_ew)[0][0]
+            imaxsnr_ns = np.where(tsel[clusterinds_ns]['snr'] == maxsnr_ns)[0][0]
+            ipeak_ew.append(imaxsnr_ew)
+            ipeak_ns.append(imaxsnr_ns)
 
-    ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # append unclustered
-    logger.info(f"Found {len(ipeak)} cluster peaks")
-    print(f"Found {len(ipeak)} cluster peaks")
+#    ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # append unclustered
+    logger.info(f"Found {len(ipeak_ns)} cluster peaks in two arms")
+    print(f"Found {len(ipeak_ns)} cluster peaks in two arms")
 
-    return tab[ipeak]
+    return table.hstack([tab[ipeak_ew], tab[ipeak_ns]])
 
 
 def filter_clustered(

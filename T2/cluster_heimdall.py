@@ -136,6 +136,7 @@ def cluster_data(
     metric="hamming",
     return_clusterer=False,
     allow_single_cluster=True,
+    cluster_selection_epsilon=10,
 ):
     """Take data from parse_candsfile and identify clusters via hamming metric.
     selectcols will take a subset of the standard MBHeimdall output
@@ -151,10 +152,9 @@ def cluster_data(
             min_samples=min_samples,
             cluster_selection_method="eom",
             allow_single_cluster=allow_single_cluster,
+            cluster_selection_epsilon=cluster_selection_epsilon,
         ).fit(data)
 
-        nclustered = np.max(clusterer.labels_ + 1)
-        nunclustered = len(np.where(clusterer.labels_ == -1)[0])
         cl = clusterer.labels_.astype(int)
     except ValueError:
         print("Clustering did not run. Each point assigned to unique cluster.")
@@ -162,8 +162,6 @@ def cluster_data(
             "Clustering did not run. Each point assigned to unique cluster."
         )
         cl = np.arange(len(data), dtype=int)
-        nclustered = 0
-        nunclustered = len(cl)
 
     bl = data[:, 3]   # assuming fixed columns
     cntb, cntc = np.zeros((len(data), 1), dtype=int), np.zeros(

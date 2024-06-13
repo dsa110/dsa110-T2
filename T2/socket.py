@@ -343,6 +343,193 @@ def cluster_and_plot(
 
     return lastname, trigtime
 
+def cross_match_peaks(tab_ew, tab_ns, 
+                      bin_width_sec=1,
+                      dmmax=1000):
+
+    # Convert MJD to seconds starting at zero
+    mjd_min = min(tab_ew['mjds'].min(), tab_ns['mjds'].min())
+    time_ew_sec = np.array(tab_ew['mjds'][:] - mjd_min) * 86400
+    time_ns_sec = np.array(tab_ns['mjds'][:] - mjd_min) * 86400
+
+    max_time_sec = max(time_ew_sec.max(), time_ns_sec.max())
+    nbin_time = max_time_sec / bin_width_sec
+    nbin_time = int(nbin_time)
+
+    nbin_dm = 256
+
+    # Grid the EW arm candidates
+    arr_ew, time_bins, dm_bins = np.histogram2d(time_ew_sec, tab_ew['dm'][:], 
+                            bins=(nbin_time, nbin_dm),
+                            range=((0, max_time_sec),
+                                   (0, dmmax)))
+    
+    # Grid the NS arm candidates
+    arr_ns, time_bins, dm_bins = np.histogram2d(time_ns_sec, tab_ns['dm'][:], 
+                            bins=(nbin_time, nbin_dm),
+                            range=((0, max_time_sec),
+                                   (0, dmmax)))
+
+    # cross match
+    cross_match_arr = arr_ew * arr_ns
+
+    return cross_match_arr, time_bins, dm_bins
+
+def cluster_twoarms(
+        tab_ew,
+        tab_ns,
+        gulp=None,
+        outroot=None,
+        trigger=False,
+        lastname=None,
+        cat=None,
+        beam_model=None,
+        coords=None,
+        snrs=None,
+        prev_trig_time=None
+        cluster_selection_epsilon=10,
+    ):
+    """
+    Run clustering and plotting on read data.
+    Can optionally save clusters as heimdall candidate table before filtering and json version of buffer trigger.
+    lastname is name of previously triggered/named candidate.
+    cat: path to source catalog (default None)
+    beam_model: pre-calculated beam model (default None)
+    coords and snrs: from source catalog (default None)
+    """
+
+    # TODO: put these in json config file
+    min_timedelt = 60. ## TODO put this in etcd
+    trigtime = None
+    columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+    
+    use_gal_dm = t2_cnf.get("use_gal_dm", None)  # not used currently
+    if use_gal_dm:
+        dm_mw = ds.get_dict('/mon/array/gal_dm')['gal_dm']
+        logger.debug(f'Using DM of {dm_mw}')
+    else:
+        dm_mw = 0
+    min_dm = max(50., dm_mw*0.75)
+    max_ibox = t2_cnf.get("max_ibox", None)
+    min_snr = t2_cnf.get("min_snr", None)
+    min_snr_t2out = t2_cnf.get("min_snr_t2out", None)  # write T2 output cand file above this snr
+    max_cntb = t2_cnf.get("max_ctb", None)
+    writeT1 = t2_cnf.get("writeT1", False)
+    nbeams_max = t2_cnf.get("nbeams_max", None)
+
+    # cluster east-west arm, ignore beam number
+    cluster_data(
+                tab_ew,
+                selectcols=["itime", "idm", "ibox"],
+                min_cluster_size=2,
+                min_samples=5,
+                metric="euclidean",
+                return_clusterer=False,
+                allow_single_cluster=True,
+                cluster_selection_epsilon=cluster_selection_epsilon,
+                )
+    
+    # cluster north-south arm, ignore beam number
+    cluster_data(
+                tab_ns,
+                selectcols=["itime", "idm", "ibox"],
+                min_cluster_size=2,
+                min_samples=5,
+                metric="euclidean",
+                return_clusterer=False,
+                allow_single_cluster=True,
+                cluster_selection_epsilon=cluster_selection_epsilon,
+                )
+
+    if writeT1:
+        output_file_ew = outroot + "T1_output_ew" + str(np.floor(time.time()).astype("int")) + ".cand"
+        outputted = cluster_heimdall.dump_cluster_results_heimdall(tab_ew,
+                                                                   output_file_ew,
+                                                                   min_snr_t2out=min_snr_t2out)
+        
+        output_file_ns = outroot + "T1_output_ns" + str(np.floor(time.time()).astype("int")) + ".cand"
+        outputted = cluster_heimdall.dump_cluster_results_heimdall(tab_ns,
+                                                                   output_file_ns,
+                                                                   min_snr_t2out=min_snr_t2out)
+
+    # filter the peaks
+    tab2_ew = cluster_heimdall.get_peak(tab_ew)
+    tab2_ns = cluster_heimdall.get_peak(tab_ns)
+    
+    cross_match_peaks(tab2_ew, tab2_ns)
+
+
+#    nbeams_gulp = cluster_heimdall.get_nbeams(tab2_ew)
+#    nbeams_gulp = cluster_heimdall.get_nbeams(tab2_ew)
+    nbeams_queue.append(nbeams_gulp)
+    print(f"nbeams_queue: {nbeams_queue}")
+    tab3 = cluster_heimdall.filter_clustered(
+        tab2,
+        min_dm=min_dm,
+        min_snr=min_snr,
+        max_ibox=max_ibox,
+        max_cntb=max_cntb,
+    )
+
+    # trigger decision
+    col_trigger = np.zeros(len(tab2), dtype=int)
+    if outroot is not None and len(tab3):
+        tab4, lastname, trigtime = cluster_heimdall.dump_cluster_results_json(
+            tab3,
+            trigger=trigger,
+            lastname=lastname,
+            gulp=gulp,
+            cat=cat,
+            beam_model=beam_model,
+            coords=coords,
+            snrs=snrs,
+            outroot=outroot,
+            nbeams=sum(nbeams_queue),
+            nbeams_max=nbeams_max,
+            prev_trig_time=prev_trig_time,
+            min_timedelt=min_timedelt
+        )
+        if tab4 is not None and trigger:
+            col_trigger = np.where(
+                tab4 == tab2, lastname, 0
+            )  # if trigger, then overload
+
+    # write T2 clustered/filtered results
+    if outroot is not None and len(tab2):
+        tab2["trigger"] = col_trigger
+        output_file = outroot + "cluster_output" + str(np.floor(time.time()).astype("int")) + ".cand"
+        outputted = cluster_heimdall.dump_cluster_results_heimdall(tab2,
+                                                                   output_file,
+                                                                   min_snr_t2out=min_snr_t2out)
+
+        # aggregate files
+        if outputted:
+            a = Time.now().mjd
+            output_mjd = str(int(a))
+            old_mjd = str(int(a)-1)
+            fl1 = outroot+old_mjd+".csv"
+            fl2 = outroot+output_mjd+".csv"
+            ofl = outroot+"cluster_output.csv"
+
+            df0 = pandas.read_csv(output_file, delimiter=' ', names=columns)
+
+            dfs = [df0]
+            if os.path.exists(fl1):  # accumulate to yesterday's for rolling 2-day file
+                df1 = pandas.read_csv(fl1)
+                dfs.append(df1)
+
+            if os.path.exists(fl2):  # accumulate to today's for 1-day file
+                df2 = pandas.read_csv(fl2)
+                dfs.append(df2)
+                dfc2 = pandas.concat( (df0, df2) )
+                dfc2.to_csv(fl2, index=False)
+            else:
+                df0.to_csv(fl2, index=False)
+
+            dfc = pandas.concat(dfs)
+            dfc.to_csv(ofl, index=False)
+
+    return lastname, trigtime
 
 def recvall(sock, n):
     """

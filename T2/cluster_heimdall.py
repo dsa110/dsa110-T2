@@ -133,7 +133,7 @@ def cluster_data(
     selectcols=["itime", "idm", "ibox", "ibeam"],
     min_cluster_size=2,
     min_samples=5,
-    metric="hamming",
+    metric="euclidean",
     return_clusterer=False,
     allow_single_cluster=True,
     cluster_selection_epsilon=10,

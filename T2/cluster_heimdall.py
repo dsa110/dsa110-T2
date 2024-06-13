@@ -138,9 +138,10 @@ def cluster_data(
     selectcols=["itime", "idm", "ibox", "ibeam"],
     min_cluster_size=2,
     min_samples=5,
-    metric="hamming",
+    metric="euclidean",
     return_clusterer=False,
     allow_single_cluster=True,
+    cluster_selection_epsilon=10,
 ):
     """Take data from parse_candsfile and identify clusters via hamming metric.
     selectcols will take a subset of the standard MBHeimdall output
@@ -156,9 +157,8 @@ def cluster_data(
             min_samples=min_samples,
             cluster_selection_method="eom",
             allow_single_cluster=allow_single_cluster,
+            cluster_selection_epsilon=cluster_selection_epsilon,
         ).fit(data)
-        #        clusterer = cluster.DBSCAN(metric='chebyshev', min_samples=min_samples,
-        #                                   eps=14, algorithm='auto', leaf_size=23).fit(data)
 
         nclustered = np.max(clusterer.labels_ + 1)
         nunclustered = len(np.where(clusterer.labels_ == -1)[0])

@@ -354,7 +354,7 @@ def cross_match_peaks(tab_ew, tab_ns,
 
     max_time_sec = max(time_ew_sec.max(), time_ns_sec.max())
     nbin_time = max_time_sec / bin_width_sec
-    nbin_time = int(nbin_time)
+    nbin_time = max(1, int(nbin_time))
 
     nbin_dm = 256
 
@@ -373,7 +373,14 @@ def cross_match_peaks(tab_ew, tab_ns,
     # cross match
     cross_match_arr = arr_ew * arr_ns
 
-    return cross_match_arr, time_bins, dm_bins
+    # Need to find the peaks in the cross matched array
+
+    ind_nonzero = np.where(cross_match_arr > 0)
+
+    # Convert the bins back to MJD and DM
+    mjd_bins = mjd_min + time_bins / 86400 + 0.5 * bin_width_sec / 86400
+
+    return cross_match_arr, mjd_bins, dm_bins, ind_nonzero
 
 def cluster_twoarms(
         tab_ew,
@@ -456,12 +463,12 @@ def cluster_twoarms(
     tab2_ew = cluster_heimdall.get_peak(tab_ew)
     tab2_ns = cluster_heimdall.get_peak(tab_ns)
     
-    cross_match_peaks(tab2_ew, tab2_ns)
+    cross_match_tdm, time_bins, dm_bins, ind_nonzero = cross_match_peaks(tab2_ew, tab2_ns)
 
 
 #    nbeams_gulp = cluster_heimdall.get_nbeams(tab2_ew)
 #    nbeams_gulp = cluster_heimdall.get_nbeams(tab2_ew)
-    nbeams_queue.append(nbeams_gulp)
+#    nbeams_queue.append(nbeams_gulp)
     print(f"nbeams_queue: {nbeams_queue}")
     tab3 = cluster_heimdall.filter_clustered(
         tab2,

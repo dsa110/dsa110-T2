@@ -345,42 +345,83 @@ def cluster_and_plot(
 
 def cross_match_peaks(tab_ew, tab_ns, 
                       bin_width_sec=1,
-                      dmmax=1000):
+                      dmmax=2000):
+    """ Cross match the peaks of the two arms.
+
+    tab_ew: pandas dataframe of east-west arm candidates
+    tab_ns: pandas dataframe of north-south arm candidates
+    bin_width_sec: width of time bins in seconds
+    dmmax: maximum DM to consider
+
+    Returns:
+    cross_match_arr: 2D array of the cross matched peaks
+    tab_ew_match: pandas dataframe of the east-west arm candidates that match
+    tab_ns_match: pandas dataframe of the north-south arm candidates that match
+    """
 
     # Convert MJD to seconds starting at zero
     mjd_min = min(tab_ew['mjds'].min(), tab_ns['mjds'].min())
     time_ew_sec = np.array(tab_ew['mjds'][:] - mjd_min) * 86400
     time_ns_sec = np.array(tab_ns['mjds'][:] - mjd_min) * 86400
 
-    max_time_sec = max(time_ew_sec.max(), time_ns_sec.max())
+    max_time_sec = max(time_ew_sec.max(), time_ns_sec.max() + 1e-3)
     nbin_time = max_time_sec / bin_width_sec
     nbin_time = max(1, int(nbin_time))
 
     nbin_dm = 256
 
+    time_range = (-0.1, max_time_sec)
+
     # Grid the EW arm candidates
     arr_ew, time_bins, dm_bins = np.histogram2d(time_ew_sec, tab_ew['dm'][:], 
                             bins=(nbin_time, nbin_dm),
-                            range=((0, max_time_sec),
+                            range=(time_range,
                                    (0, dmmax)))
     
     # Grid the NS arm candidates
     arr_ns, time_bins, dm_bins = np.histogram2d(time_ns_sec, tab_ns['dm'][:], 
                             bins=(nbin_time, nbin_dm),
-                            range=((0, max_time_sec),
+                            range=(time_range,
                                    (0, dmmax)))
+
+    ind_dm_ew = np.digitize(tab_ew['dm'], dm_bins) - 1
+    ind_time_ew = np.digitize(time_ew_sec, time_bins) - 1
+
+    ind_dm_ns = np.digitize(tab_ns['dm'], dm_bins) - 1 
+    ind_time_ns = np.digitize(time_ns_sec, time_bins) - 1
 
     # cross match
     cross_match_arr = arr_ew * arr_ns
 
     # Need to find the peaks in the cross matched array
-
     ind_nonzero = np.where(cross_match_arr > 0)
 
-    # Convert the bins back to MJD and DM
-    mjd_bins = mjd_min + time_bins / 86400 + 0.5 * bin_width_sec / 86400
+    # Find the time and DM bins of the peaks
+    time_bins_match = ind_nonzero[0]
+    dm_bins_match = ind_nonzero[1]
+    ew_match_arr = []
+    ns_match_arr = []
 
-    return cross_match_arr, mjd_bins, dm_bins, ind_nonzero
+    for ii_ew in range(len(tab_ew)):
+        # Find the time and DM bins of the EW candidate
+        time_bin_ew_ii = ind_time_ew[ii_ew]
+        dm_bin_ew_ii = ind_dm_ew[ii_ew]
+
+        if time_bin_ew_ii in time_bins_match and dm_bin_ew_ii in dm_bins_match:
+            ew_match_arr.append(ii_ew)
+
+    for ii_ns in range(len(tab_ns)):
+        # Find the time and DM bins of the EW candidate
+        time_bin_ns_ii = ind_time_ns[ii_ns]
+        dm_bin_ns_ii = ind_dm_ns[ii_ns]
+
+        if time_bin_ns_ii in time_bins_match and dm_bin_ns_ii in dm_bins_match:
+            ns_match_arr.append(ii_ns)
+
+    tab_ew_match = tab_ew[ew_match_arr]
+    tab_ns_match = tab_ns[ns_match_arr]
+
+    return cross_match_arr, tab_ew_match, tab_ns_match
 
 def cluster_twoarms(
         tab_ew,
@@ -463,7 +504,9 @@ def cluster_twoarms(
     tab2_ew = cluster_heimdall.get_peak(tab_ew)
     tab2_ns = cluster_heimdall.get_peak(tab_ns)
     
-    cross_match_tdm, time_bins, dm_bins, ind_nonzero = cross_match_peaks(tab2_ew, tab2_ns)
+    cross_match_tdm, mjd_bins, dm_bins, ind_nonzero = cross_match_peaks(tab2_ew, tab2_ns)
+
+
 
 
 #    nbeams_gulp = cluster_heimdall.get_nbeams(tab2_ew)

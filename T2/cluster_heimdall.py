@@ -8,7 +8,7 @@ import os.path
 #import hdbscan
 from sklearn.cluster import DBSCAN
 import numpy as np
-from astropy import time, units
+from astropy import time, units, table
 from astropy.io import ascii
 from astropy.io.ascii.core import InconsistentTableError
 
@@ -182,16 +182,14 @@ def cluster_data(
 
     #    logger.info(f'Found {nclustered} clustered and {nunclustered} unclustered rows')
 
-    # hack assumes fixed columns
-    bl = data[:, 3]
-    cntb, cntc = np.zeros((len(data), 1), dtype=int), np.zeros(
-        (len(data), 1), dtype=int
-    )
+    bl = tab['ibeam'].astype(int).data  # data[:, 3]  not required to use ibeam in clustering
+    cntb = np.zeros((len(data), 1), dtype=int)
+    cntc = np.zeros((len(data), 1), dtype=int)
     ucl = np.unique(cl)
 
     for i in ucl:
         ww = np.where(i == cl)
-        cntc[ww] = len(ww[0])
+        cntc[ww] = len(ww[0])   # TODO: figure out how to count for ns and ew separately
         ubl = np.unique(bl[ww])
         cntb[ww] = len(ubl)
 
@@ -212,33 +210,33 @@ def cluster_data(
 
 
 def get_peak(tab):
-    """Given labeled data, find max snr row per cluster
+    """Given labeled data of search output from two arms, find max snr row per cluster
     Adds in count of candidates in same beam and same cluster.
-    Puts unclustered candidates in as individual events.
+    Only returns clusters with detections in both arms
     """
 
-    #    clsnr = []
-    #    cl = datal[:, 4].astype(int)   # hack. should really use table.
-    #    cnt_beam = datal[:, 5].astype(int)
-    #    cnt_cl = datal[:, 6].astype(int)
     cl = tab["cl"].astype(int)
-    #    cnt_beam = tab['cntb'].astype(int)
-    #    cnt_cl = tab['cntc'].astype(int)
-    snrs = tab["snr"]
-    ipeak = []
+    ipeak_ns = []
+    ipeak_ew = []
     for i in np.unique(cl):
         if i == -1:
             continue
-        clusterinds = np.where(i == cl)[0]
-        maxsnr = snrs[clusterinds].max()
-        imaxsnr = np.where(snrs == maxsnr)[0][0]
-        ipeak.append(imaxsnr)
-    #        clsnr.append((imaxsnr, maxsnr, cnt_beam[imaxsnr], cnt_cl[imaxsnr]))
-    ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # append unclustered
-    logger.info(f"Found {len(ipeak)} cluster peaks")
-    print(f"Found {len(ipeak)} cluster peaks")
+        tsel = tab[tab['cl'] == i]
+        if tsel['ibeam'].max() > 255 and tsel['ibeam'].min() < 256:  # seen in both arms
+            clusterinds_ew = np.where((tsel['cl'] == i) & (tsel['ibeam'] < 256))[0]
+            clusterinds_ns = np.where((tsel['cl'] == i) & (tsel['ibeam'] > 255))[0]
+            maxsnr_ew = tsel[clusterinds_ew]['snr'].max()
+            maxsnr_ns = tsel[clusterinds_ns]['snr'].max()
+            imaxsnr_ew = np.where(tsel[clusterinds_ew]['snr'] == maxsnr_ew)[0][0]
+            imaxsnr_ns = np.where(tsel[clusterinds_ns]['snr'] == maxsnr_ns)[0][0]
+            ipeak_ew.append(imaxsnr_ew)
+            ipeak_ns.append(imaxsnr_ns)
 
-    return tab[ipeak]
+#    ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # append unclustered
+    logger.info(f"Found {len(ipeak_ns)} cluster peaks in two arms")
+    print(f"Found {len(ipeak_ns)} cluster peaks in two arms")
+
+    return table.hstack([tab[ipeak_ew], tab[ipeak_ns]])
 
 
 def filter_clustered(
@@ -467,6 +465,8 @@ def dump_cluster_results_json(
                         print(f"Not triggering because of short wait time")
                         logger.info(f"Not triggering because of short wait time")
                         return None, candname, None
+                    else:
+                        trigtime = None
                         
                 with open(outputfile, "w") as f:  # encoding='utf-8'
                     print(
@@ -480,6 +480,8 @@ def dump_cluster_results_json(
                 if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                     send_trigger(output_dict=output_dict)
                     trigtime = time.Time.now()
+                else:
+                    trigtime = None
 
                 return row, candname, trigtime
 
@@ -494,6 +496,8 @@ def dump_cluster_results_json(
                     print(f"Not triggering because of short wait time")
                     logger.info(f"Not triggering because of short wait time")
                     return None, candname, None
+                else:
+                    trigtime = None
                 
             with open(outputfile, "w") as f:  # encoding='utf-8'
                 print(
@@ -507,6 +511,8 @@ def dump_cluster_results_json(
             if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                 send_trigger(output_dict=output_dict)
                 trigtime = time.Time.now()
+            else:
+                trigtime = None
 
             return row, candname, trigtime
 

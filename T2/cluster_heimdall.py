@@ -5,7 +5,8 @@ import json
 import os.path
 
 # from sklearn import cluster  # for dbscan
-import hdbscan
+#import hdbscan
+from sklearn.cluster import DBSCAN
 import numpy as np
 from astropy import time, units
 from astropy.io import ascii
@@ -112,6 +113,9 @@ def parse_candsfile(candsfile):
                 return ([], [], [])
 
     tab["ibeam"] = tab["ibeam"].astype(int)
+    tab["idm"] = tab["idm"].astype(int)
+    tab["ibox"] = tab["ibox"].astype(int)
+    tab["itime"] = tab["itime"].astype(int)
     if hdfile is True:
         try:
             ret_time = (
@@ -123,7 +127,7 @@ def parse_candsfile(candsfile):
             )
         except:
             ret_time = 55000.0
-        tab["mjds"] = tab["mjds"] / 86400.0 + ret_time
+        tab["mjds"] = tab["mjds"] + ret_time
 
     #
     #    snrs = tab['snr']
@@ -137,8 +141,8 @@ def cluster_data(
     tab,
     selectcols=["itime", "idm", "ibox", "ibeam"],
     min_cluster_size=2,
-    min_samples=5,
-    metric="hamming",
+    min_samples=2,
+    metric="cityblock",
     return_clusterer=False,
     allow_single_cluster=True,
 ):
@@ -146,19 +150,23 @@ def cluster_data(
     selectcols will take a subset of the standard MBHeimdall output
     """
 
+    tt = tab[selectcols]
+    print(tt[:10])
     data = np.lib.recfunctions.structured_to_unstructured(
-        tab[selectcols].as_array()
+        tab[selectcols].as_array(), dtype=np.int
     )  # ok for single dtype (int)
+    np.savez("test.npz",data=data)
+    
     try:
-        clusterer = hdbscan.HDBSCAN(
-            metric=metric,
-            min_cluster_size=min_cluster_size,
-            min_samples=min_samples,
-            cluster_selection_method="eom",
-            allow_single_cluster=allow_single_cluster,
-        ).fit(data)
-        #        clusterer = cluster.DBSCAN(metric='chebyshev', min_samples=min_samples,
-        #                                   eps=14, algorithm='auto', leaf_size=23).fit(data)
+        #clusterer = hdbscan.HDBSCAN(
+        #    metric=metric,
+        #    min_cluster_size=min_cluster_size,
+        #    min_samples=min_samples,
+        #    cluster_selection_method="eom",
+        #    allow_single_cluster=allow_single_cluster,
+        #).fit(data)
+        clusterer = DBSCAN(metric=metric, min_samples=min_samples,
+                           eps=10, algorithm='auto', leaf_size=23).fit(data)
 
         nclustered = np.max(clusterer.labels_ + 1)
         nunclustered = len(np.where(clusterer.labels_ == -1)[0])
@@ -360,7 +368,8 @@ def dump_cluster_results_json(
     """
 
     if coords is None or snrs is None:
-        coords, snrs = triggering.parse_catalog(cat)
+        if cat is not None:
+            coords, snrs = triggering.parse_catalog(cat)
 
     itimes = tab["itime"]
     maxsnr = tab["snr"].max()
@@ -549,10 +558,16 @@ def send_trigger(output_dict=None, outputfile=None):
         f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
     )
 
-    ds.put_dict(
-        "/cmd/corr/0",
-        {"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'},
-    )  # triggers voltage dump in corr.py
+    with open(f"/home/ubuntu/data/T2test/{candname}.json", "w") as f:  # encoding='utf-8'
+        print(
+            f"Writing dump dict"
+        )
+        json.dump({"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'}, f, ensure_ascii=False, indent=4)
+
+    #ds.put_dict(
+    #    "/cmd/corr/0",
+    #    {"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'},
+    #)  # triggers voltage dump in corr.py
     ds.put_dict(
         "/mon/corr/1/trigger", output_dict
     )  # tells look_after_dumps.py to manage data

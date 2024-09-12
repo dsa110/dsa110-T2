@@ -139,7 +139,7 @@ def parse_candsfile(candsfile):
 
 def cluster_data(
     tab,
-    selectcols=["itime", "idm", "ibox", "ibeam"],
+    selectcols=["itime", "idm", "ibox"],  # no ibeam for 2-arm clustering
     min_cluster_size=2,
     min_samples=2,
     metric="cityblock",
@@ -151,7 +151,7 @@ def cluster_data(
     """
 
     tt = tab[selectcols]
-    print(tt[:10])
+#    print(tt[:10])
     data = np.lib.recfunctions.structured_to_unstructured(
         tab[selectcols].as_array(), dtype=np.int
     )  # ok for single dtype (int)
@@ -182,7 +182,7 @@ def cluster_data(
 
     #    logger.info(f'Found {nclustered} clustered and {nunclustered} unclustered rows')
 
-    bl = tab['ibeam'].astype(int).data  # data[:, 3]  not required to use ibeam in clustering
+    bl = tab['ibeam'].astype(int).data  # use tab to get ibeam values
     cntb = np.zeros((len(data), 1), dtype=int)
     cntc = np.zeros((len(data), 1), dtype=int)
     ucl = np.unique(cl)
@@ -205,38 +205,82 @@ def cluster_data(
         return clusterer
 
 
-#    else:
-#        return data_labeled
-
-
-def get_peak(tab):
-    """Given labeled data of search output from two arms, find max snr row per cluster
+def get_peak(tab, nsnr=5):
+    """Given labeled data of search output from two arms, find snr distribution per cluster
     Adds in count of candidates in same beam and same cluster.
-    Only returns clusters with detections in both arms
+    Add SNR from top nsnr beams as new columns (snr1, snr2, ..., snr<nsnr>) per arm.
     """
 
+    beams_ns = []  # nsnr-tuple per cluster
+    snrs_ns = []
+    beams_ew = []
+    snrs_ew = []
+    inds_peak = []
+
     cl = tab["cl"].astype(int)
-    ipeak_ns = []
-    ipeak_ew = []
+    ncl = len(np.unique(cl))
     for i in np.unique(cl):
         if i == -1:
             continue
+
+        # reduce table to peak snr per beam
         tsel = tab[tab['cl'] == i]
-        if tsel['ibeam'].max() > 255 and tsel['ibeam'].min() < 256:  # seen in both arms
-            clusterinds_ew = np.where((tsel['cl'] == i) & (tsel['ibeam'] < 256))[0]
-            clusterinds_ns = np.where((tsel['cl'] == i) & (tsel['ibeam'] > 255))[0]
-            maxsnr_ew = tsel[clusterinds_ew]['snr'].max()
-            maxsnr_ns = tsel[clusterinds_ns]['snr'].max()
-            imaxsnr_ew = np.where(tsel[clusterinds_ew]['snr'] == maxsnr_ew)[0][0]
-            imaxsnr_ns = np.where(tsel[clusterinds_ns]['snr'] == maxsnr_ns)[0][0]
-            ipeak_ew.append(imaxsnr_ew)
-            ipeak_ns.append(imaxsnr_ns)
+        sel = []
+        for i in range(512):
+            if (len(tsel[tsel['ibeam'] == i])):
+                maxsnr = tsel[tsel['ibeam'] == i]['snr'].max()
+                sel.append(np.where((tsel['ibeam'] == i)*tsel['snr'] == maxsnr)[0][0])
 
-#    ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # append unclustered
-    logger.info(f"Found {len(ipeak_ns)} cluster peaks in two arms")
-    print(f"Found {len(ipeak_ns)} cluster peaks in two arms")
+        tsel = tsel[sel]
+        tsel.sort('snr', reverse=True)
+        bs_ew = []
+        bs_ns = []
+        for i in range(len(tsel)):
+            if tsel[i]['ibeam'] < 256:  # EW arm
+                bs_ew.append((tsel[i]['ibeam'], tsel[i]['snr']))
+            elif tsel[i]['ibeam'] >= 256:  # NS arm
+                bs_ns.append((tsel[i]['ibeam'], tsel[i]['snr']))
 
-    return table.hstack([tab[ipeak_ew], tab[ipeak_ns]])
+            # break if we found top nsnr per arm
+            if (len(bs_ew) >= nsnr) and (len(bs_ns) >= nsnr):
+                break
+                
+        # top it up to nsnr if we are short
+        while len(bs_ew) < nsnr:
+            bs_ew.append((0, 0.))
+        while len(bs_ns) < nsnr:
+            bs_ns.append((0, 0.))
+
+        bs_ew = bs_ew[:nsnr]
+        bs_ns = bs_ns[:nsnr]
+
+        assert len(bs_ew) == nsnr  # top nsnr beam-snr values per cluster
+
+        bb, ss = list(zip(*bs_ns)) # corner turn per cluster
+        beams_ns.append(bb)
+        snrs_ns.append(ss)
+        bb, ss = list(zip(*bs_ew))
+        beams_ew.append(bb)
+        snrs_ew.append(ss)
+
+    assert len(beams_ns) == ncl
+    assert len(inds_peak) == ncl
+
+    # TODO fix this to find peak snr for given cluster and beam
+    inds_peak.append(np.where(tsel['snr'] == tsel['snr'].max())[0][0])  # get peak snr of original table
+
+    tab2 = tab[inds_peak]
+
+    for i in range(nsnr):
+        tab2[f'snr{i}ns'] = list(zip(*snrs_ns))
+        tab2[f'beam{i}ns'] = list(zip(*beams_ns))
+        tab2[f'snr{i}ew'] = list(zip(*snrs_ew))
+        tab2[f'beam{i}ew'] = list(zip(*beams_ew))
+
+    logger.info(f"Got top {nsnr} beams from {ncl} clusters")
+    print(f"Got top {nsnr} beams from {ncl} clusters")
+
+    return tab2
 
 
 def filter_clustered(

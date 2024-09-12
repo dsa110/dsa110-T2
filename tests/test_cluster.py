@@ -32,29 +32,11 @@ def test_cluster1(tab):
 
 
 def test_cluster_2arm(tabs):
-    tab = table.hstack(tabs)
+    tab = table.vstack(tabs)
     # find cluster ignoring ibeam
-    cluster_heimdall.cluster_data(tab, return_clusterer=False, metric='euclidean', min_cluster_size=2, min_samples=5,
-                                  allow_single_cluster=True, selectcols=["itime", "idm", "ibox"])
+    cluster_heimdall.cluster_data(tab, return_clusterer=False, selectcols=["itime", "idm", "ibox"])
     tabp = cluster_heimdall.get_peak(tab)  # returns peak snr of each cluster for two beam sets (0-255, 256-511)
     tabpf = cluster_heimdall.filter_clustered(tabp)
-
-
-def test_cluster_2arm_alt(tabs):
-    tab1, tab2 = tabs
-    # find cluster per beam set (ns, ew)
-    cluster_heimdall.cluster_data(tab1, return_clusterer=False, metric='euclidean', min_cluster_size=2, min_samples=5,
-                                  allow_single_cluster=True, selectcols=["itime", "idm", "ibox", "ibeam"])
-    cluster_heimdall.cluster_data(tab2, return_clusterer=False, metric='euclidean', min_cluster_size=2, min_samples=5,
-                                  allow_single_cluster=True, selectcols=["itime", "idm", "ibox", "ibeam"])
-
-    # reduce to snr peak per cluster per arm
-    tab1p = cluster_heimdall.get_peak(tab1)
-    tab2p = cluster_heimdall.get_peak(tab2)
-
-    # TODO: decide whether to coincidence again, then filter or vice versa
-    tab1pf = cluster_heimdall.filter_clustered(tab1p)
-    tab2pf = cluster_heimdall.filter_clustered(tab2p)
 
 
 def test_peak(tab):

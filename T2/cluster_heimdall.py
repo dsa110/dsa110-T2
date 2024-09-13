@@ -219,63 +219,36 @@ def get_peak(tab, nsnr=5):
 
     cl = tab["cl"].astype(int)
     ncl = len(np.unique(cl))
-    for i in np.unique(cl):
-        if i == -1:
+    snrs = tab["snr"]
+    ipeak = []
+    for c in np.unique(cl):
+        if c == -1:
             continue
 
-        # reduce table to peak snr per beam
-        tsel = tab[tab['cl'] == i]
-        sel = []
-        for i in range(512):
-            if (len(tsel[tsel['ibeam'] == i])):
-                maxsnr = tsel[tsel['ibeam'] == i]['snr'].max()
-                sel.append(np.where((tsel['ibeam'] == i)*tsel['snr'] == maxsnr)[0][0])
+        clusterinds = np.where(c == cl)[0]
+        maxsnr = snrs[clusterinds].max()
+        imaxsnr = np.where(snrs == maxsnr)[0][0]
+        ipeak.append(imaxsnr)
 
-        tsel = tsel[sel]
-        tsel.sort('snr', reverse=True)
-        bs_ew = []
-        bs_ns = []
-        for i in range(len(tsel)):
-            if tsel[i]['ibeam'] < 256:  # EW arm
-                bs_ew.append((tsel[i]['ibeam'], tsel[i]['snr']))
-            elif tsel[i]['ibeam'] >= 256:  # NS arm
-                bs_ns.append((tsel[i]['ibeam'], tsel[i]['snr']))
+#    ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # TODO figure out how to handle unclustered events
+    tab2 = tab[ipeak]
 
-            # break if we found top nsnr per arm
-            if (len(bs_ew) >= nsnr) and (len(bs_ns) >= nsnr):
-                break
-                
-        # top it up to nsnr if we are short
-        while len(bs_ew) < nsnr:
-            bs_ew.append((0, 0.))
-        while len(bs_ns) < nsnr:
-            bs_ns.append((0, 0.))
-
-        bs_ew = bs_ew[:nsnr]
-        bs_ns = bs_ns[:nsnr]
-
-        assert len(bs_ew) == nsnr  # top nsnr beam-snr values per cluster
-
-        bb, ss = list(zip(*bs_ns)) # corner turn per cluster
-        beams_ns.append(bb)
-        snrs_ns.append(ss)
-        bb, ss = list(zip(*bs_ew))
-        beams_ew.append(bb)
-        snrs_ew.append(ss)
-
-    assert len(beams_ns) == ncl
-    assert len(inds_peak) == ncl
-
-    # TODO fix this to find peak snr for given cluster and beam
-    inds_peak.append(np.where(tsel['snr'] == tsel['snr'].max())[0][0])  # get peak snr of original table
-
-    tab2 = tab[inds_peak]
+    # get top beam snrs and attach as new columns
+    beams = np.zeros((nsnr, ncl), dtype=int)
+    snrs = np.zeros((nsnr, ncl), dtype=float)
+    for c in np.unique(cl):
+        # iterate to get max snr per beam
+        ss = np.zeros(512, dtype=float)
+        tcl = tab[tab['cl'] == c]   # TODO this is probably very slow
+        for i in tcl['ibeam']:
+            maxsnr = tcl[tcl['ibeam'] == i]['snr'].max()
+            ss[i] = maxsnr
+        beams[:, c] = ss.argsort()[::-1][:nsnr]
+        snrs[:, c] = ss[ss.argsort()[::-1]][:nsnr]
 
     for i in range(nsnr):
-        tab2[f'snr{i}ns'] = list(zip(*snrs_ns))
-        tab2[f'beam{i}ns'] = list(zip(*beams_ns))
-        tab2[f'snr{i}ew'] = list(zip(*snrs_ew))
-        tab2[f'beam{i}ew'] = list(zip(*beams_ew))
+        tab2[f'snrs{i}'] = list(snrs[i])
+        tab2[f'beams{i}'] = list(beams[i])
 
     logger.info(f"Got top {nsnr} beams from {ncl} clusters")
     print(f"Got top {nsnr} beams from {ncl} clusters")

@@ -42,7 +42,7 @@ nbeams_queue = deque(maxlen=10)
 def parse_socket(
     host,
     ports,
-    selectcols=["itime", "idm", "ibox", "ibeam"],
+    selectcols=["itime", "idm", "ibox"],
     outroot=None,
     plot_dir=None,
     trigger=False,
@@ -227,7 +227,7 @@ def cluster_and_plot(
         tab,
         globct,
         gulp=None,
-        selectcols=["itime", "idm", "ibox", "ibeam"],
+        selectcols=["itime", "idm", "ibox"],
         outroot=None,
         plot_dir=None,
         trigger=False,

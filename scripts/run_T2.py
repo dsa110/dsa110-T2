@@ -13,6 +13,7 @@ logger.app('T2')
 def main(argv):
     parser = argparse.ArgumentParser(description='Parse input to T2 socket clients')
     parser.add_argument('--ip', type=str, default='10.42.0.90', help='ip address of heimdall', required=False)
+#    parser.add_argument('--ports', type=str, default='12345,12346,12347,12348,12349,12350,12351,12352', help='ports address of heimdall (comma-delimited list)', required=False)
     parser.add_argument('--ports', type=str, default='12345,12346,12347,12348', help='ports address of heimdall (comma-delimited list)', required=False)
     parser.add_argument('--trigger', type=bool, default=True, help='send trigger to dump buffer', required=False)
     parser.add_argument('--source_catalog', type=str, default=None, help='set to identify triggers from sources', required=False)

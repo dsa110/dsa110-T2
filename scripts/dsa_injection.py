@@ -44,6 +44,6 @@ for zz in range(1000000):
             f.write(fmt_out % (imjd, beam, DM, SNR, Width_fwhm, spec_ind, frbno))
             f.close()
             print("Waiting to inject...")            
-            time.sleep(600)
+            time.sleep(120)
 
 f.close()

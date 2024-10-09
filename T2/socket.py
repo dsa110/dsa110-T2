@@ -157,6 +157,7 @@ def parse_socket(
 
             for s in ss:
                 s.close()
+            time.sleep(0.1)
             ss = []
             for port in ports:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -185,7 +186,7 @@ def parse_socket(
 
         # send flush trigger after min_timedelt (once per candidate)
         if Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
-            ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
+            #ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
             lastname_cleared = lastname   # reset to avoid continuous calls
             prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
 
@@ -251,7 +252,7 @@ def cluster_and_plot(
     # TODO: put these in json config file
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
-    columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+    columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','snrs0','beams0','snrs1','beams1','snrs2','beams2','snrs3','beams3','snrs4','beams4','trigger']
     
     # obtain this from etcd
     # TODO: try a timeout exception
@@ -365,7 +366,7 @@ def cluster_and_plot(
             col_trigger = np.where(
                 tab4 == tab2, lastname, 0
             )  # if trigger, then overload
-
+            
     # write T2 clustered/filtered results
     if outroot is not None and len(tab2):
         tab2["trigger"] = col_trigger

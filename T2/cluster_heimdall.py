@@ -127,6 +127,7 @@ def parse_candsfile(candsfile):
             )
         except:
             ret_time = 55000.0
+        print(ret_time)
         tab["mjds"] = tab["mjds"] + ret_time
 
     #
@@ -232,24 +233,43 @@ def get_peak(tab, nsnr=5):
 
 #    ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # TODO figure out how to handle unclustered events
     tab2 = tab[ipeak]
+    ncl = len(ipeak)
 
     # get top beam snrs and attach as new columns
     beams = np.zeros((nsnr, ncl), dtype=int)
     snrs = np.zeros((nsnr, ncl), dtype=float)
+    iii = 0
     for c in np.unique(cl):
+        if c == -1:
+            continue
+        
         # iterate to get max snr per beam
         ss = np.zeros(512, dtype=float)
         tcl = tab[tab['cl'] == c]   # TODO this is probably very slow
         for i in tcl['ibeam']:
             maxsnr = tcl[tcl['ibeam'] == i]['snr'].max()
             ss[i] = maxsnr
-        beams[:, c] = ss.argsort()[::-1][:nsnr]
-        snrs[:, c] = ss[ss.argsort()[::-1]][:nsnr]
+        beams[:, iii] = ss.argsort()[::-1][:nsnr]
+        snrs[:, iii] = ss[ss.argsort()[::-1]][:nsnr]
+        iii += 1
+        
+    try:
+        for i in range(nsnr):
+            tab2[f'snrs{i}'] = list(snrs[i])
+            tab2[f'beams{i}'] = list(beams[i])
+    except:
+        print("Error in adding beam SNRs")
+        for i in range(nsnr):
+            print(list(snrs[i]))
+        beams = np.zeros((nsnr, ncl), dtype=int)
+        snrs = np.zeros((nsnr, ncl), dtype=float)
+        for i in range(nsnr):
+            tab2[f'snrs{i}'] = list(snrs[i])
+            tab2[f'beams{i}'] = list(beams[i])
 
-    for i in range(nsnr):
-        tab2[f'snrs{i}'] = list(snrs[i])
-        tab2[f'beams{i}'] = list(beams[i])
 
+    logger.info(f"Found {len(ipeak)} cluster peaks")
+    print(f"Found {len(ipeak)} cluster peaks")
     logger.info(f"Got top {nsnr} beams from {ncl} clusters")
     print(f"Got top {nsnr} beams from {ncl} clusters")
 
@@ -407,12 +427,13 @@ def dump_cluster_results_json(
             assert all([col in tab_inj.columns for col in ["MJD", "Beam", "DM", "SNR", "FRBno"]])
 
         # is candidate proximal to any in tab_inj?
-        t_close = 20 # seconds  TODO: why not 1 sec?
+        t_close = 900 # seconds  TODO: why not 1 sec?
         dm_close = 20 # pc/cm3
         beam_close = 2 # number
         sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/(3600*24)
         sel_dm = np.abs(tab_inj["DM"] - dm) < dm_close
         sel_beam = np.abs(tab_inj["Beam"] - ibeam) < beam_close
+        print("INJECTION TEST",tab_inj["MJD"],mjd,sel_t,sel_dm,sel_beam)
         sel = sel_t*sel_dm*sel_beam
         if len(np.where(sel)[0]):
             isinjection = True
@@ -587,10 +608,10 @@ def send_trigger(output_dict=None, outputfile=None):
         )
         json.dump({"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'}, f, ensure_ascii=False, indent=4)
 
-    #ds.put_dict(
-    #    "/cmd/corr/0",
-    #    {"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'},
-    #)  # triggers voltage dump in corr.py
+    ds.put_dict(
+        "/cmd/corr/0",
+        {"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'},
+    )  # triggers voltage dump in corr.py
     ds.put_dict(
         "/mon/corr/1/trigger", output_dict
     )  # tells look_after_dumps.py to manage data

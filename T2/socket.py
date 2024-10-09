@@ -42,7 +42,7 @@ nbeams_queue = deque(maxlen=10)
 def parse_socket(
     host,
     ports,
-    selectcols=["itime", "idm", "ibox", "ibeam"],
+    selectcols=["itime", "idm", "ibox"],
     outroot=None,
     plot_dir=None,
     trigger=False,
@@ -96,7 +96,8 @@ def parse_socket(
                 s.bind((host, port))  # assigns the socket with an address
                 s.listen(1)  # accept no. of incoming connections
                 ss.append(s)
-
+                #print(f"Appended socket for port {port} on host {host}")
+                
         ds.put_dict(
             "/mon/service/T2service",
             {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
@@ -110,6 +111,7 @@ def parse_socket(
                     address,
                 ) = s.accept()  # stores the socket details in 2 variables
                 cls.append(clientsocket)
+                #print("appended")
         except KeyboardInterrupt:
             print("Escaping socket connection")
             logger.info("Escaping socket connection")
@@ -122,6 +124,7 @@ def parse_socket(
             cf = recvall(cl, 100000000).decode("utf-8")
 
             gulp, *lines = cf.split("\n")
+            #print(cl,gulp)
             try:
                 gulp = int(gulp)
             #                print(f"received gulp {gulp} with {len(lines)-1} lines")
@@ -154,6 +157,7 @@ def parse_socket(
 
             for s in ss:
                 s.close()
+            time.sleep(0.1)
             ss = []
             for port in ports:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -182,7 +186,7 @@ def parse_socket(
 
         # send flush trigger after min_timedelt (once per candidate)
         if Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
-            ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
+            #ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
             lastname_cleared = lastname   # reset to avoid continuous calls
             prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
 
@@ -224,7 +228,7 @@ def cluster_and_plot(
         tab,
         globct,
         gulp=None,
-        selectcols=["itime", "idm", "ibox", "ibeam"],
+        selectcols=["itime", "idm", "ibox"],
         outroot=None,
         plot_dir=None,
         trigger=False,
@@ -248,7 +252,7 @@ def cluster_and_plot(
     # TODO: put these in json config file
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
-    columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
+    columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','snrs0','beams0','snrs1','beams1','snrs2','beams2','snrs3','beams3','snrs4','beams4','trigger']
     
     # obtain this from etcd
     # TODO: try a timeout exception
@@ -299,7 +303,7 @@ def cluster_and_plot(
     # cluster
     cluster_heimdall.cluster_data(
         tab,
-        metric="euclidean",
+        #metric="euclidean",
         allow_single_cluster=True,
         return_clusterer=False,
     )
@@ -308,11 +312,25 @@ def cluster_and_plot(
     nbeams_queue.append(nbeams_gulp)
     print(f"nbeams_queue: {nbeams_queue}")
 
+    # Liam edit to preserve real FRBs during RFI storm:
+    # if nbeam > 100 and frac_wide < 0.8: do not discard
+    #maxsnr = tab["snr"].max()
+    #imaxsnr = np.where(tab["snr"] == maxsnr)[0][0]
+    #cl_max = tab["cl"][imaxsnr]
+    #frac_wide = np.sum(tab["ibox"][tab["cl"] == cl_max] >= 32) / float(
+    #    len(tab["ibox"][tab["cl"] == cl_max])
+    #)
+
+    #if len(tab["ibox"][tab["cl"] == cl_max]) == 1:
+    frac_wide = 0.0
+
     # Width filter for false positives
-    ibox64_filter = False
-    if len(tab2):
-        ind = np.where(tab2["ibox"]<32)[0]
-        tab2 = tab2[ind]
+    #ibox64_filter = False
+    #if len(tab2):
+    #    ibox64_cnt = np.sum(tab2["ibox"] == 64) / float(len(tab2["ibox"]))
+#        print("here", ibox64_cnt, tab2["ibox"])
+    #    if ibox64_cnt > 0.85 and len(tab2["ibox"]) > 15:
+    #        ibox64_filter = True
 
     # Done
     tab3 = cluster_heimdall.filter_clustered(
@@ -329,7 +347,7 @@ def cluster_and_plot(
     )  # max_ncl rows returned
 
     col_trigger = np.zeros(len(tab2), dtype=int)
-    if outroot is not None and len(tab3) and not ibox64_filter:
+    if outroot is not None and len(tab3):# and not ibox64_filter:
         tab4, lastname, trigtime = cluster_heimdall.dump_cluster_results_json(
             tab3,
             trigger=trigger,
@@ -348,7 +366,7 @@ def cluster_and_plot(
             col_trigger = np.where(
                 tab4 == tab2, lastname, 0
             )  # if trigger, then overload
-
+            
     # write T2 clustered/filtered results
     if outroot is not None and len(tab2):
         tab2["trigger"] = col_trigger

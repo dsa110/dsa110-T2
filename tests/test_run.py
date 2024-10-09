@@ -32,7 +32,7 @@ def test_T2():
     tab2 = T2.cluster_heimdall.get_peak(tab)
     
     # send T2 cluster results to outputfile
-    row, candname = T2.cluster_heimdall.dump_cluster_results_json(tab, outputfile=outputfile, output_cols=['mjds', 'snr', 'ibox', 'ibeam', 'dm'])
+    row, candname, trigtime = T2.cluster_heimdall.dump_cluster_results_json(tab, outputfile=outputfile, output_cols=['mjds', 'snr', 'ibox', 'ibeam', 'dm'])
 
     assert candname is not None
     
@@ -51,7 +51,7 @@ def test_cluster_and_plot():
     # read in giants 
     tab = T2.cluster_heimdall.parse_candsfile(candsfile)
 
-    lastname = T2.socket.cluster_and_plot(tab, 0) 
+    lastname, trigtime = T2.socket.cluster_and_plot(tab, 0) 
 
     assert lastname is None   # if too many, as for giants_1.cand
 
@@ -66,8 +66,8 @@ def test_lastname():
     # read in giants 
     tab = T2.cluster_heimdall.parse_candsfile(candsfile)
 
-    lastname = T2.socket.cluster_and_plot(tab, 0, outroot='tests/test_', max_ncl=100000)
-    lastname2 = T2.socket.cluster_and_plot(tab, 0, outroot='tests/test_', max_ncl=100000, lastname=lastname)
+    lastname, trigtime = T2.socket.cluster_and_plot(tab, 0, outroot='tests/test_', max_ncl=100000)
+    lastname2, trigtime = T2.socket.cluster_and_plot(tab, 0, outroot='tests/test_', max_ncl=100000, lastname=lastname)
 
     assert lastname is not None
     assert lastname != lastname2

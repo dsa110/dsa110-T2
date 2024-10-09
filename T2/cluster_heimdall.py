@@ -5,9 +5,10 @@ import json
 import os.path
 
 # from sklearn import cluster  # for dbscan
-import hdbscan
+#import hdbscan
+from sklearn.cluster import DBSCAN
 import numpy as np
-from astropy import time, units
+from astropy import time, units, table
 from astropy.io import ascii
 from astropy.io.ascii.core import InconsistentTableError
 
@@ -16,7 +17,7 @@ try:
 except ModuleNotFoundError:
     print("not importing triggering")
 from dsautils import coordinates, dsa_store
-from event import names
+from event import names  # TODO: add event to get DSAEvent class
 
 ds = dsa_store.DsaStore()
 import dsautils.dsa_syslog as dsl
@@ -112,6 +113,9 @@ def parse_candsfile(candsfile):
                 return ([], [], [])
 
     tab["ibeam"] = tab["ibeam"].astype(int)
+    tab["idm"] = tab["idm"].astype(int)
+    tab["ibox"] = tab["ibox"].astype(int)
+    tab["itime"] = tab["itime"].astype(int)
     if hdfile is True:
         try:
             ret_time = (
@@ -123,7 +127,8 @@ def parse_candsfile(candsfile):
             )
         except:
             ret_time = 55000.0
-        tab["mjds"] = tab["mjds"] / 86400.0 + ret_time
+        print(ret_time)
+        tab["mjds"] = tab["mjds"] + ret_time
 
     #
     #    snrs = tab['snr']
@@ -135,10 +140,10 @@ def parse_candsfile(candsfile):
 
 def cluster_data(
     tab,
-    selectcols=["itime", "idm", "ibox", "ibeam"],
+    selectcols=["itime", "idm", "ibox"],  # no ibeam for 2-arm clustering
     min_cluster_size=2,
-    min_samples=5,
-    metric="hamming",
+    min_samples=2,
+    metric="cityblock",
     return_clusterer=False,
     allow_single_cluster=True,
 ):
@@ -146,19 +151,23 @@ def cluster_data(
     selectcols will take a subset of the standard MBHeimdall output
     """
 
+    tt = tab[selectcols]
+#    print(tt[:10])
     data = np.lib.recfunctions.structured_to_unstructured(
-        tab[selectcols].as_array()
+        tab[selectcols].as_array(), dtype=np.int
     )  # ok for single dtype (int)
+    np.savez("test.npz",data=data)
+    
     try:
-        clusterer = hdbscan.HDBSCAN(
-            metric=metric,
-            min_cluster_size=min_cluster_size,
-            min_samples=min_samples,
-            cluster_selection_method="eom",
-            allow_single_cluster=allow_single_cluster,
-        ).fit(data)
-        #        clusterer = cluster.DBSCAN(metric='chebyshev', min_samples=min_samples,
-        #                                   eps=14, algorithm='auto', leaf_size=23).fit(data)
+        #clusterer = hdbscan.HDBSCAN(
+        #    metric=metric,
+        #    min_cluster_size=min_cluster_size,
+        #    min_samples=min_samples,
+        #    cluster_selection_method="eom",
+        #    allow_single_cluster=allow_single_cluster,
+        #).fit(data)
+        clusterer = DBSCAN(metric=metric, min_samples=min_samples,
+                           eps=10, algorithm='auto', leaf_size=23).fit(data)
 
         nclustered = np.max(clusterer.labels_ + 1)
         nunclustered = len(np.where(clusterer.labels_ == -1)[0])
@@ -174,16 +183,14 @@ def cluster_data(
 
     #    logger.info(f'Found {nclustered} clustered and {nunclustered} unclustered rows')
 
-    # hack assumes fixed columns
-    bl = data[:, 3]
-    cntb, cntc = np.zeros((len(data), 1), dtype=int), np.zeros(
-        (len(data), 1), dtype=int
-    )
+    bl = tab['ibeam'].astype(int).data  # use tab to get ibeam values
+    cntb = np.zeros((len(data), 1), dtype=int)
+    cntc = np.zeros((len(data), 1), dtype=int)
     ucl = np.unique(cl)
 
     for i in ucl:
         ww = np.where(i == cl)
-        cntc[ww] = len(ww[0])
+        cntc[ww] = len(ww[0])   # TODO: figure out how to count for ns and ew separately
         ubl = np.unique(bl[ww])
         cntb[ww] = len(ubl)
 
@@ -199,38 +206,74 @@ def cluster_data(
         return clusterer
 
 
-#    else:
-#        return data_labeled
-
-
-def get_peak(tab):
-    """Given labeled data, find max snr row per cluster
+def get_peak(tab, nsnr=5):
+    """Given labeled data of search output from two arms, find snr distribution per cluster
     Adds in count of candidates in same beam and same cluster.
-    Puts unclustered candidates in as individual events.
+    Add SNR from top nsnr beams as new columns (snr1, snr2, ..., snr<nsnr>) per arm.
     """
 
-    #    clsnr = []
-    #    cl = datal[:, 4].astype(int)   # hack. should really use table.
-    #    cnt_beam = datal[:, 5].astype(int)
-    #    cnt_cl = datal[:, 6].astype(int)
+    beams_ns = []  # nsnr-tuple per cluster
+    snrs_ns = []
+    beams_ew = []
+    snrs_ew = []
+    inds_peak = []
+
     cl = tab["cl"].astype(int)
-    #    cnt_beam = tab['cntb'].astype(int)
-    #    cnt_cl = tab['cntc'].astype(int)
+    ncl = len(np.unique(cl))
     snrs = tab["snr"]
     ipeak = []
-    for i in np.unique(cl):
-        if i == -1:
+    for c in np.unique(cl):
+        if c == -1:
             continue
-        clusterinds = np.where(i == cl)[0]
+
+        clusterinds = np.where(c == cl)[0]
         maxsnr = snrs[clusterinds].max()
         imaxsnr = np.where(snrs == maxsnr)[0][0]
         ipeak.append(imaxsnr)
-    #        clsnr.append((imaxsnr, maxsnr, cnt_beam[imaxsnr], cnt_cl[imaxsnr]))
-    ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # append unclustered
+
+#    ipeak += [i for i in range(len(tab)) if cl[i] == -1]  # TODO figure out how to handle unclustered events
+    tab2 = tab[ipeak]
+    ncl = len(ipeak)
+
+    # get top beam snrs and attach as new columns
+    beams = np.zeros((nsnr, ncl), dtype=int)
+    snrs = np.zeros((nsnr, ncl), dtype=float)
+    iii = 0
+    for c in np.unique(cl):
+        if c == -1:
+            continue
+        
+        # iterate to get max snr per beam
+        ss = np.zeros(512, dtype=float)
+        tcl = tab[tab['cl'] == c]   # TODO this is probably very slow
+        for i in tcl['ibeam']:
+            maxsnr = tcl[tcl['ibeam'] == i]['snr'].max()
+            ss[i] = maxsnr
+        beams[:, iii] = ss.argsort()[::-1][:nsnr]
+        snrs[:, iii] = ss[ss.argsort()[::-1]][:nsnr]
+        iii += 1
+        
+    try:
+        for i in range(nsnr):
+            tab2[f'snrs{i}'] = list(snrs[i])
+            tab2[f'beams{i}'] = list(beams[i])
+    except:
+        print("Error in adding beam SNRs")
+        for i in range(nsnr):
+            print(list(snrs[i]))
+        beams = np.zeros((nsnr, ncl), dtype=int)
+        snrs = np.zeros((nsnr, ncl), dtype=float)
+        for i in range(nsnr):
+            tab2[f'snrs{i}'] = list(snrs[i])
+            tab2[f'beams{i}'] = list(beams[i])
+
+
     logger.info(f"Found {len(ipeak)} cluster peaks")
     print(f"Found {len(ipeak)} cluster peaks")
+    logger.info(f"Got top {nsnr} beams from {ncl} clusters")
+    print(f"Got top {nsnr} beams from {ncl} clusters")
 
-    return tab[ipeak]
+    return tab2
 
 
 def filter_clustered(
@@ -360,7 +403,8 @@ def dump_cluster_results_json(
     """
 
     if coords is None or snrs is None:
-        coords, snrs = triggering.parse_catalog(cat)
+        if cat is not None:
+            coords, snrs = triggering.parse_catalog(cat)
 
     itimes = tab["itime"]
     maxsnr = tab["snr"].max()
@@ -383,12 +427,13 @@ def dump_cluster_results_json(
             assert all([col in tab_inj.columns for col in ["MJD", "Beam", "DM", "SNR", "FRBno"]])
 
         # is candidate proximal to any in tab_inj?
-        t_close = 20 # seconds  TODO: why not 1 sec?
+        t_close = 900 # seconds  TODO: why not 1 sec?
         dm_close = 20 # pc/cm3
         beam_close = 2 # number
         sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/(3600*24)
         sel_dm = np.abs(tab_inj["DM"] - dm) < dm_close
         sel_beam = np.abs(tab_inj["Beam"] - ibeam) < beam_close
+        print("INJECTION TEST",tab_inj["MJD"],mjd,sel_t,sel_dm,sel_beam)
         sel = sel_t*sel_dm*sel_beam
         if len(np.where(sel)[0]):
             isinjection = True
@@ -443,6 +488,9 @@ def dump_cluster_results_json(
 
     if len(tab) and nbeams_condition is False:
         print(red_tab)
+
+        # TODO: create DSAEvent here and use it instead of output_dict
+
         if cat is not None and red_tab is not None:
             # beam_model = triggering.read_beam_model(beam_model)
             tab_checked = triggering.check_clustered_sources(
@@ -455,6 +503,8 @@ def dump_cluster_results_json(
                         print(f"Not triggering because of short wait time")
                         logger.info(f"Not triggering because of short wait time")
                         return None, candname, None
+                    else:
+                        trigtime = None
                         
                 with open(outputfile, "w") as f:  # encoding='utf-8'
                     print(
@@ -463,11 +513,13 @@ def dump_cluster_results_json(
                     logger.info(
                         f"Writing trigger file for index {imaxsnr} with SNR={maxsnr}"
                     )
-                    json.dump(output_dict, f, ensure_ascii=False, indent=4)
+                    json.dump(output_dict, f, ensure_ascii=False, indent=4)   # could replace this with DSAEvent method
 
                 if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                     send_trigger(output_dict=output_dict)
                     trigtime = time.Time.now()
+                else:
+                    trigtime = None
 
                 return row, candname, trigtime
 
@@ -482,6 +534,8 @@ def dump_cluster_results_json(
                     print(f"Not triggering because of short wait time")
                     logger.info(f"Not triggering because of short wait time")
                     return None, candname, None
+                else:
+                    trigtime = None
                 
             with open(outputfile, "w") as f:  # encoding='utf-8'
                 print(
@@ -495,6 +549,8 @@ def dump_cluster_results_json(
             if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
                 send_trigger(output_dict=output_dict)
                 trigtime = time.Time.now()
+            else:
+                trigtime = None
 
             return row, candname, trigtime
 
@@ -545,6 +601,12 @@ def send_trigger(output_dict=None, outputfile=None):
     logger.info(
         f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
     )
+
+    with open(f"/home/ubuntu/data/T2test/{candname}.json", "w") as f:  # encoding='utf-8'
+        print(
+            f"Writing dump dict"
+        )
+        json.dump({"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'}, f, ensure_ascii=False, indent=4)
 
     ds.put_dict(
         "/cmd/corr/0",

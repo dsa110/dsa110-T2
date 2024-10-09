@@ -1,5 +1,6 @@
 import pytest
 import os.path
+from astropy import table
 from T2 import cluster_heimdall, plotting
 
 _install_dir = os.path.abspath(os.path.dirname(__file__))
@@ -11,6 +12,15 @@ def tab():
     return tab
 
 
+@pytest.fixture(scope="module")
+def tabs():
+    candsfile1 = os.path.join(_install_dir, 'data/giants_1.cand')
+    candsfile2 = os.path.join(_install_dir, 'data/giants_2.cand')
+    tab1 = cluster_heimdall.parse_candsfile(candsfile1)
+    tab2 = cluster_heimdall.parse_candsfile(candsfile2)
+    return tab1, tab2
+
+
 def test_parse(tab):
     assert len(tab) == 3411
     assert len(tab[0]) == 8
@@ -19,6 +29,14 @@ def test_parse(tab):
 def test_cluster1(tab):
     cluster_heimdall.cluster_data(tab, return_clusterer=False)
     assert len(tab[0]) == 11
+
+
+def test_cluster_2arm(tabs):
+    tab = table.vstack(tabs)
+    # find cluster ignoring ibeam
+    cluster_heimdall.cluster_data(tab, return_clusterer=False, selectcols=["itime", "idm", "ibox"])
+    tabp = cluster_heimdall.get_peak(tab)  # returns peak snr of each cluster for two beam sets (0-255, 256-511)
+    tabpf = cluster_heimdall.filter_clustered(tabp)
 
 
 def test_peak(tab):

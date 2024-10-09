@@ -192,6 +192,9 @@ def parse_socket(
 
         try:
             tab = cluster_heimdall.parse_candsfile(candsfile)
+            # write all T1 cands
+            outputted = cluster_heimdall.dump_cluster_results_heimdall(tab, 'T1_output.csv')
+
             lastname,trigtime = cluster_and_plot(
                 tab,
                 globct,

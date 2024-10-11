@@ -488,8 +488,8 @@ def dump_cluster_results_json(
         # Liam edit to preserve real FRBs during RFI storm:
         # if nbeam > max_nbeams and frac_wide < 0.8: do not discard because
         # most FPs are wide
-        if frac_wide < 0.8:
-            nbeams_condition = False
+#        if frac_wide < 0.8:
+#            nbeams_condition = False
 
     if len(tab) and nbeams_condition is False:
         print(red_tab)

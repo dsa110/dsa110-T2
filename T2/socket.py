@@ -323,7 +323,7 @@ def cluster_and_plot(
     #)
 
     #if len(tab["ibox"][tab["cl"] == cl_max]) == 1:
-    frac_wide = 0.0
+#    frac_wide = 0.0
 
     # Width filter for false positives
     #ibox64_filter = False

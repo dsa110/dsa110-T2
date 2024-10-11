@@ -11,7 +11,7 @@ d = ds.DsaStore()
 fmt_out = '%5.9f  %d  %0.2f %0.1f %0.3f %0.2f %s\n'
 
 # This file has parameters for FRBs that have been injected
-fnout = '/home/ubuntu/injection_list.txt'
+fnout = '/home/ubuntu/data/injections/injection_list.txt'
 
 if not os.path.exists(fnout):
     f = open(fnout,'w+')

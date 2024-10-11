@@ -156,7 +156,7 @@ def cluster_data(
     data = np.lib.recfunctions.structured_to_unstructured(
         tab[selectcols].as_array(), dtype=np.int
     )  # ok for single dtype (int)
-    np.savez("test.npz",data=data)
+#    np.savez("test.npz",data=data)
     
     try:
         #clusterer = hdbscan.HDBSCAN(
@@ -307,9 +307,14 @@ def filter_clustered(
 
     if min_snr is not None:
         if min_snrt is None:
-#            good *= tab["snr"] > min_snr
-            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
-            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
+            # snr limit for narrow and wide, with requirement of at least two beams
+            df = tab.to_pandas()
+            nsarr = ((df[[f'beams{i}' for i in range(5)]].values > 255)) & (df[[f'snrs{i}' for i in range(5)]].values > 0)
+            ewarr = ((df[[f'beams{i}' for i in range(5)]].values <= 255)) & (df[[f'snrs{i}' for i in range(5)]].values > 0)
+            twoarm = ewarr.any(axis=1) & nsarr.any(axis=1)
+            print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
+            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox) * twoarm
+            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox) * twoarm
             good *= good0 + good1
         else:
             # print(f'min_snr={min_snr}, min_snrt={min_snrt}, min_dmt={min_dmt}, max_dmt={max_dmt}, tab={tab[["snr", "dm"]]}')

@@ -192,8 +192,6 @@ def parse_socket(
 
         try:
             tab = cluster_heimdall.parse_candsfile(candsfile)
-            # write all T1 cands
-            outputted = cluster_heimdall.dump_cluster_results_heimdall(tab, 'T1_output.csv')
 
             lastname,trigtime = cluster_and_plot(
                 tab,
@@ -369,7 +367,10 @@ def cluster_and_plot(
             col_trigger = np.where(
                 tab4 == tab2, lastname, 0
             )  # if trigger, then overload
-            
+
+            # write all T1 cands
+            outputted = cluster_heimdall.dump_cluster_results_heimdall(tab, outroot + f"T1_output{str(np.floor(time.time()).astype('int'))}.csv")
+
     # write T2 clustered/filtered results
     if outroot is not None and len(tab2):
         tab2["trigger"] = col_trigger

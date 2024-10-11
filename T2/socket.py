@@ -309,7 +309,7 @@ def cluster_and_plot(
         return_clusterer=False,
     )
     tab2 = cluster_heimdall.get_peak(tab)
-    nbeams_gulp = cluster_heimdall.get_nbeams(tab2)
+    nbeams_gulp = cluster_heimdall.get_nbeams(tab2, threshold=min_snr)
     nbeams_queue.append(nbeams_gulp)
     print(f"nbeams_queue: {nbeams_queue}")
 

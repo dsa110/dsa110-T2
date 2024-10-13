@@ -432,13 +432,13 @@ def dump_cluster_results_json(
             assert all([col in tab_inj.columns for col in ["MJD", "Beam", "DM", "SNR", "FRBno"]])
 
         # is candidate proximal to any in tab_inj?
-        t_close = 60 # seconds  TODO: why not 1 sec?
+        t_close = 300 # seconds  TODO: why not 1 sec?
         dm_close = 20 # pc/cm3
         beam_close = 2 # number
         sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/(3600*24)
         sel_dm = np.abs(tab_inj["DM"] - dm) < dm_close
         sel_beam = np.abs(tab_inj["Beam"] - ibeam) < beam_close
-#        print("INJECTION TEST",tab_inj["MJD"],mjd,sel_t,sel_dm,sel_beam)
+        print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}")
         sel = sel_t*sel_dm*sel_beam
         if len(np.where(sel)[0]):
             isinjection = True

@@ -379,7 +379,7 @@ def get_nbeams(tab, threshold=7.5):
 def dump_cluster_results_json(
         tab,
         outputfile=None,
-        output_cols=["mjds", "snr", "ibox", "dm", "ibeam", "cntb", "cntc"],
+        output_cols=["mjds", "snr", "ibox", "dm", "ibeam", "cntb", "cntc"] + [f'snrs{i}' for i in range(5)] + [f'beams{i}' for i in range(5)],
         trigger=False,
         lastname=None,
         gulp=None,
@@ -398,6 +398,7 @@ def dump_cluster_results_json(
     """
     Takes tab from parse_candsfile and clsnr from get_peak,
     json file will be named with generated name, unless outputfile is set
+    TODO: make cleaner, as it currently assumes nsnr=5 as in get_peak.
     candidate name and specnum is calculated. name is unique.
     trigger is bool to update DsaStore to trigger data dump.
     cat is path to source catalog (default None)

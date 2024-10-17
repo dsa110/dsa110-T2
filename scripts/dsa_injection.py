@@ -33,7 +33,7 @@ for kk in [17,18]:
         beam = 128*(kk-17)+subbeam
         print("Injecting into beam %d"%beam)
         fn = flist[int(ii%5)]
-        frbno = fn.split('_')[-1][:4]
+        frbno = fn.split('_')[-1].split('.')[0]
         ind = int(ii%5)#np.where(params[:,-1]==float(frbno))[0]
         DM, SNR, Width_fwhm, spec_ind = params[ind][0],params[ind][1],params[ind][2],params[ind][3]
         print("pushing injection to command to etcd")

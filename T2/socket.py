@@ -13,17 +13,23 @@ import time
 
 from astropy.time import Time
 from astropy import units
-from dsautils import cnf, dsa_store, dsa_syslog
+try:
+    from dsautils import cnf, dsa_store, dsa_syslog
+    ds = dsa_store.DsaStore()
+    logger = dsa_syslog.DsaSyslogger()
+    logger.subsystem("software")
+    logger.app("T2")
+    my_cnf = cnf.Conf(use_etcd=True)
+except:
+    ds = None
+    import logging
+    logger = logging.getLogger()
+    
 from etcd3.exceptions import ConnectionFailedError
 from event import names
 import os
 import pandas
 
-ds = dsa_store.DsaStore()
-logger = dsa_syslog.DsaSyslogger()
-logger.subsystem("software")
-logger.app("T2")
-my_cnf = cnf.Conf(use_etcd=True)
 try:
     t2_cnf = my_cnf.get("t2")
 except (KeyError, ConnectionFailedError):

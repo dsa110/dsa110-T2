@@ -1,4 +1,8 @@
 numpy
 astropy
 hdbscan
-
+pytz
+requests
+matplotlib
+pandas
+protobuf<=3.20

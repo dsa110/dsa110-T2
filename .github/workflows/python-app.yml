@@ -27,7 +27,9 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pytest
-        pip install -r requirements.txt
+	pip install git+https://github.com/dsa110/dsa110-event.git	
+	pip install git+https://github.com/dsa110/dsa110-pyutils.git
+	pip install -r requirements.txt
         pip install .
 
     - name: Test with pytest

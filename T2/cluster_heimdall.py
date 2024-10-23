@@ -16,15 +16,20 @@ try:
     from T2 import triggering
 except ModuleNotFoundError:
     print("not importing triggering")
-from dsautils import coordinates, dsa_store
+try:
+    from dsautils import coordinates, dsa_store
+    ds = dsa_store.DsaStore()
+    import dsautils.dsa_syslog as dsl
+    logger = dsl.DsaSyslogger()
+    logger.subsystem("software")
+    logger.app("T2")
+except:
+    print("not importing dsautils")
+    ds = None
+    import logging
+    logger = logging.getLogger()
+
 from event import names  # TODO: add event to get DSAEvent class
-
-ds = dsa_store.DsaStore()
-import dsautils.dsa_syslog as dsl
-
-logger = dsl.DsaSyslogger()
-logger.subsystem("software")
-logger.app("T2")
 
 # half second at heimdall time resolution (after march 18)
 offset = 1907

@@ -127,7 +127,7 @@ def parse_candsfile(candsfile):
             )
         except:
             ret_time = 55000.0
-        print(ret_time)
+#        print(ret_time)
         tab["mjds"] = tab["mjds"] + ret_time
 
     #
@@ -156,7 +156,7 @@ def cluster_data(
     data = np.lib.recfunctions.structured_to_unstructured(
         tab[selectcols].as_array(), dtype=np.int
     )  # ok for single dtype (int)
-    np.savez("test.npz",data=data)
+#    np.savez("test.npz",data=data)
     
     try:
         #clusterer = hdbscan.HDBSCAN(
@@ -307,9 +307,14 @@ def filter_clustered(
 
     if min_snr is not None:
         if min_snrt is None:
-#            good *= tab["snr"] > min_snr
-            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
-            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
+            # snr limit for narrow and wide, with requirement of at least two beams
+            df = tab.to_pandas()
+            nsarr = ((df[[f'beams{i}' for i in range(5)]].values > 255)) & (df[[f'snrs{i}' for i in range(5)]].values > 0)
+            ewarr = ((df[[f'beams{i}' for i in range(5)]].values <= 255)) & (df[[f'snrs{i}' for i in range(5)]].values > 0)
+            twoarm = ewarr.any(axis=1) & nsarr.any(axis=1)
+#            print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
+            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox) * twoarm
+            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox) * twoarm
             good *= good0 + good1
         else:
             # print(f'min_snr={min_snr}, min_snrt={min_snrt}, min_dmt={min_dmt}, max_dmt={max_dmt}, tab={tab[["snr", "dm"]]}')
@@ -326,7 +331,7 @@ def filter_clustered(
     if min_dm is not None:
         good *= tab["dm"] > min_dm
     if max_ibox is not None:
-        print(f"using max_ibox {max_ibox}")
+#        print(f"using max_ibox {max_ibox}")
         good *= tab["ibox"] < max_ibox
     if min_cntb is not None:
         good *= tab["cntb"] > min_cntb
@@ -374,7 +379,7 @@ def get_nbeams(tab, threshold=7.5):
 def dump_cluster_results_json(
         tab,
         outputfile=None,
-        output_cols=["mjds", "snr", "ibox", "dm", "ibeam", "cntb", "cntc"],
+        output_cols=["mjds", "snr", "ibox", "dm", "ibeam", "cntb", "cntc"] + [f'snrs{i}' for i in range(5)] + [f'beams{i}' for i in range(5)],
         trigger=False,
         lastname=None,
         gulp=None,
@@ -386,13 +391,14 @@ def dump_cluster_results_json(
         nbeams=0,
         max_nbeams=40,
         frac_wide=0.0,
-        injectionfile='/home/ubuntu/injection_list.txt',
+        injectionfile='/home/ubuntu/data/injections/injection_list.txt',
         prev_trig_time=None,
         min_timedelt=1.    
     ):
     """
     Takes tab from parse_candsfile and clsnr from get_peak,
     json file will be named with generated name, unless outputfile is set
+    TODO: make cleaner, as it currently assumes nsnr=5 as in get_peak.
     candidate name and specnum is calculated. name is unique.
     trigger is bool to update DsaStore to trigger data dump.
     cat is path to source catalog (default None)
@@ -427,13 +433,13 @@ def dump_cluster_results_json(
             assert all([col in tab_inj.columns for col in ["MJD", "Beam", "DM", "SNR", "FRBno"]])
 
         # is candidate proximal to any in tab_inj?
-        t_close = 900 # seconds  TODO: why not 1 sec?
+        t_close = 300 # seconds  TODO: why not 1 sec?
         dm_close = 20 # pc/cm3
         beam_close = 2 # number
         sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/(3600*24)
         sel_dm = np.abs(tab_inj["DM"] - dm) < dm_close
         sel_beam = np.abs(tab_inj["Beam"] - ibeam) < beam_close
-        print("INJECTION TEST",tab_inj["MJD"],mjd,sel_t,sel_dm,sel_beam)
+        print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}")
         sel = sel_t*sel_dm*sel_beam
         if len(np.where(sel)[0]):
             isinjection = True
@@ -477,14 +483,14 @@ def dump_cluster_results_json(
         output_dict[candname]['injected'] = isinjection
 
     nbeams_condition = False
-    print(f"Checking nbeams condition: {nbeams}>{max_nbeams}")
     if nbeams > max_nbeams:
         nbeams_condition = True
+        print(f"nbeams condition is {nbeams_condition} ({nbeams}>{max_nbeams}). Will not trigger.")
         # Liam edit to preserve real FRBs during RFI storm:
         # if nbeam > max_nbeams and frac_wide < 0.8: do not discard because
         # most FPs are wide
-        if frac_wide < 0.8:
-            nbeams_condition = False
+#        if frac_wide < 0.8:
+#            nbeams_condition = False
 
     if len(tab) and nbeams_condition is False:
         print(red_tab)

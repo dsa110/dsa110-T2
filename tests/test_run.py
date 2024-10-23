@@ -61,7 +61,7 @@ def test_lastname():
     Run socket.cluster_and_plot and use lastname
     """
 
-    candsfile = os.path.join(_install_dir, 'data/giants_1.cand')
+    candsfile = os.path.join(_install_dir, 'data/T1_output1729695471.csv')
 
     # read in giants 
     tab = T2.cluster_heimdall.parse_candsfile(candsfile)

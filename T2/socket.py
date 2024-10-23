@@ -192,6 +192,7 @@ def parse_socket(
 
         try:
             tab = cluster_heimdall.parse_candsfile(candsfile)
+
             lastname,trigtime = cluster_and_plot(
                 tab,
                 globct,
@@ -308,7 +309,7 @@ def cluster_and_plot(
         return_clusterer=False,
     )
     tab2 = cluster_heimdall.get_peak(tab)
-    nbeams_gulp = cluster_heimdall.get_nbeams(tab2)
+    nbeams_gulp = cluster_heimdall.get_nbeams(tab2, threshold=min_snr)
     nbeams_queue.append(nbeams_gulp)
     print(f"nbeams_queue: {nbeams_queue}")
 
@@ -322,7 +323,7 @@ def cluster_and_plot(
     #)
 
     #if len(tab["ibox"][tab["cl"] == cl_max]) == 1:
-    frac_wide = 0.0
+#    frac_wide = 0.0
 
     # Width filter for false positives
     #ibox64_filter = False
@@ -366,7 +367,10 @@ def cluster_and_plot(
             col_trigger = np.where(
                 tab4 == tab2, lastname, 0
             )  # if trigger, then overload
-            
+
+            # write all T1 cands
+            outputted = cluster_heimdall.dump_cluster_results_heimdall(tab, outroot + f"T1_output{str(np.floor(time.time()).astype('int'))}.csv")
+
     # write T2 clustered/filtered results
     if outroot is not None and len(tab2):
         tab2["trigger"] = col_trigger

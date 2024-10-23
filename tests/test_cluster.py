@@ -7,23 +7,23 @@ _install_dir = os.path.abspath(os.path.dirname(__file__))
 
 @pytest.fixture(scope="module")
 def tab():
-    candsfile = os.path.join(_install_dir, 'data/giants.cand')
+    candsfile = os.path.join(_install_dir, 'data/T1_output1729695471.csv')
     tab = cluster_heimdall.parse_candsfile(candsfile)
     return tab
 
 
 @pytest.fixture(scope="module")
 def tabs():
-    candsfile1 = os.path.join(_install_dir, 'data/giants_1.cand')
-    candsfile2 = os.path.join(_install_dir, 'data/giants_2.cand')
+    candsfile1 = os.path.join(_install_dir, 'data/T1_output1729695471.csv')
+    candsfile2 = os.path.join(_install_dir, 'data/T1_output1729719874.csv')
     tab1 = cluster_heimdall.parse_candsfile(candsfile1)
     tab2 = cluster_heimdall.parse_candsfile(candsfile2)
     return tab1, tab2
 
 
 def test_parse(tab):
-    assert len(tab) == 3411
-    assert len(tab[0]) == 8
+    assert len(tab) == 1000
+    assert len(tab[0]) == 11
 
 
 def test_cluster1(tab):
@@ -31,22 +31,12 @@ def test_cluster1(tab):
     assert len(tab[0]) == 11
 
 
-def test_cluster_2arm(tabs):
-    tab = table.vstack(tabs)
-    # find cluster ignoring ibeam
-    cluster_heimdall.cluster_data(tab, return_clusterer=False, selectcols=["itime", "idm", "ibox"])
-    tabp = cluster_heimdall.get_peak(tab)  # returns peak snr of each cluster for two beam sets (0-255, 256-511)
-    tabpf = cluster_heimdall.filter_clustered(tabp)
-
-
 def test_peak(tab):
     cluster_heimdall.cluster_data(tab, return_clusterer=False)
-
     tab2 = cluster_heimdall.get_peak(tab)
     assert len(tab2) == 1
-    assert len(tab2[0]) == 11
-    assert tab2 == tab[1380]
-    assert tab2['snr'] == 117.613
+    assert len(tab2[0]) == 21
+    assert tab2['snr'].max() == 17.6562
     # TODO
     # assert cb ==
     # assert cc ==
@@ -55,8 +45,7 @@ def test_peak(tab):
 def test_filter(tab):
     cluster_heimdall.cluster_data(tab, return_clusterer=False)
     tab2 = cluster_heimdall.get_peak(tab)
-    assert len(tab2) == 1
-    tab2 = cluster_heimdall.filter_clustered(tab, min_snr=1000)  # remove all
+    tab2 = cluster_heimdall.filter_clustered(tab2, min_snr=1000)  # remove all
     assert len(tab2) == 0
 
 

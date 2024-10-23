@@ -5,12 +5,13 @@ import os.path
 _install_dir = os.path.abspath(os.path.dirname(__file__))
     
 def test_on_clustered(source_check=False, catalog=None, beam_model=None, max_ncl=10, outputfile=os.path.join(_install_dir, 'tmp.dat')):
-    candsfile = os.path.join(_install_dir, 'data/giants.cand')
+    candsfile = os.path.join(_install_dir, 'data/T1_output1729719680.csv')
 
     tab = cluster_heimdall.parse_candsfile(candsfile)
     nbeams_gulp = cluster_heimdall.get_nbeams(tab)
-    tab2 = cluster_heimdall.filter_clustered(tab, min_snr=8.0, min_dm=20.0, max_ibox=33.0, max_ncl=30)
-    tab2['gulp_ncl'] = [len(tab)] * len(tab2)
+    tab2 = cluster_heimdall.get_peak(tab)
+    tab3 = cluster_heimdall.filter_clustered(tab2, min_snr=8.0, min_dm=20.0, max_ibox=33.0, max_ncl=30)
+    tab3['gulp_ncl'] = [len(tab)] * len(tab3)
 
     if len(tab2) and len(tab2)<max_ncl:
         maxsnr = tab2['snr'].max()

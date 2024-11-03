@@ -3,7 +3,7 @@ import socket
 import numpy as np
 
 from T2 import cluster_heimdall
-
+from T2.timeout import timeout
 try:
     from T2 import triggering
 except ModuleNotFoundError:
@@ -199,7 +199,7 @@ def parse_socket(
         try:
             tab = cluster_heimdall.parse_candsfile(candsfile)
 
-            lastname,trigtime = cluster_and_plot(
+            lastname,trigtime = cluster_and_plot_timeout(
                 tab,
                 globct,
                 gulp=gulp,
@@ -230,7 +230,17 @@ def parse_socket(
             continue
         gulp_status(0)  # success!
 
+@timeout(3)
+def cluster_and_plot_timeout(tab, globct, gulp=None, selectcols=["itime", "idm", "ibox"],
+                             outroot=None, plot_dir=None, trigger=False, lastname=None,
+                             max_ncl=None, cat=None, beam_model=None, coords=None, snrs=None,
+                             prev_trig_time=None):
 
+    return cluster_and_plot(tab=tab, globct=globct, gulp=glup, selectcols=selectcols, outroot=outroot,
+                            plot_dir=plot_dir, trigger=trigger, lastname=lastname, max_ncl=max_ncl, cat=cat,
+                            beam_model=beam_model, coords=coords, snrs=snrs, prev_trig_time=prev_trig_time)
+
+        
 def cluster_and_plot(
         tab,
         globct,
@@ -415,29 +425,6 @@ def cluster_and_plot(
 
             dfc = pandas.concat(dfs)
             dfc.to_csv(ofl, index=False)
-
-#            try:
-#                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-#                p = pandas.DataFrame(a)  # overwrite in correct format
-#                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-#                p.to_csv(fl1,index=False)
-#
-#                b = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-#                p = pandas.DataFrame(b)  # overwrite in correct format
-#                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-#                p.to_csv(fl2,index=False)
-#
-#                c = np.concatenate((a,b),axis=0)
-#            except:
-#                c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-
-#            p = pandas.DataFrame(c)
-#            p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-
-            
-#os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
-            #os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv >> "+outroot+"cluster_output.csv")
-            #os.system("tail -n +2 "+outroot+output_mjd+".csv >> "+outroot+"cluster_output.csv")
 
     return lastname, trigtime
 

@@ -3,7 +3,7 @@ import socket
 import numpy as np
 
 from T2 import cluster_heimdall
-from T2.timeout import timeout
+from T2.timeout import timeout, TimeoutError
 try:
     from T2 import triggering
 except ModuleNotFoundError:
@@ -221,6 +221,10 @@ def parse_socket(
             print("Escaping parsing and plotting")
             logger.info("Escaping parsing and plotting")
             break
+        except TimeoutError:
+            print("cluster_and_plot timed out. Skipping this gulp..")
+            logger.info("cluster_and_plot timed out. Skipping this gulp...")
+            gulp_status(3)
         except OverflowError:
             print("overflowing value. Skipping this gulp...")
             logger.warning("overflowing value. Skipping this gulp...")

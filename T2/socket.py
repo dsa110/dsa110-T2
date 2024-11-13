@@ -28,6 +28,7 @@ except:
 from etcd3.exceptions import ConnectionFailedError
 from event import names
 import os
+from concurrent.futures import ThreadPoolExecutor
 import pandas
 
 try:
@@ -95,6 +96,9 @@ def parse_socket(
 
     logger.info(f"Reading from {len(ports)} sockets...")
     print(f"Reading from {len(ports)} sockets...")
+
+    pool = ThreadPoolExecutor(max_workers=10)
+    futures = []
     while True:
         if len(ss) != len(ports):
             for port in ports:
@@ -161,27 +165,27 @@ def parse_socket(
                 f"not all clients received from same gulp: {set(gulps)}. Restarting socket connections."
             )
 
-            for s in ss:
-                s.close()
-            time.sleep(0.1)
-            ss = []
-            for port in ports:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                try:
-                    s.bind((host, port))  # assigns the socket with an address
-                except OSError:
-                    print("socket bind failed.")
-                    continue
-                s.listen(1)  # accept no. of incoming connections
-                ss.append(s)
+#            for s in ss:
+#                s.close()
+#            time.sleep(0.1)
+#            ss = []
+#            for port in ports:
+#                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#                try:
+#                    s.bind((host, port))  # assigns the socket with an address
+#                except OSError:
+#                    print("socket bind failed.")
+#                    continue
+#                s.listen(1)  # accept no. of incoming connections
+#                ss.append(s)
             gulp_status(2)
             continue
-        else:
-            gulp = set(gulps).pop()  # get gulp number
-            ds.put_dict(
-                "/mon/service/T2gulp",
-                {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
-            )
+#        else:
+#            gulp = set(gulps).pop()  # get gulp number
+#            ds.put_dict(
+#                "/mon/service/T2gulp",
+#                {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
+#            )
 
         if candsfile == "\n" or candsfile == "":  # skip empty candsfile
             print(f"candsfile is empty. Skipping.")
@@ -196,53 +200,47 @@ def parse_socket(
             lastname_cleared = lastname   # reset to avoid continuous calls
             prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
 
-        try:
-            tab = cluster_heimdall.parse_candsfile(candsfile)
-            lastname,trigtime = cluster_and_plot(
-                tab,
-                globct,
-                gulp=gulp,
-                selectcols=selectcols,
-                outroot=outroot,
-                plot_dir=plot_dir,
-                trigger=trigger,
-                lastname=lastname,
-                cat=source_catalog,
-                beam_model=model,
-                coords=coords,
-                snrs=snrs,
-                prev_trig_time=prev_trig_time
-            )
-#            lastname,trigtime = ft.func_timeout(4.1,
-#                                                cluster_and_plot,
-#                                                args=(tab,globct),
-#                                                kwargs={'gulp':gulp,
-#                                                        'selectcols':selectcols,
-#                                                        'outroot':outroot,
-#                                                        'plot_dir':plot_dir,
-#                                                        'trigger':trigger,
-#                                                        'lastname':lastname,
-#                                                        'cat':source_catalog,
-#                                                        'beam_model':model,
-#                                                        'coords':coords,
-#                                                        'snrs':snrs,
-#                                                        'prev_trig_time':prev_trig_time}
-#                                                )
-            if trigtime is not None:
-                prev_trig_time = trigtime
-            globct += 1
-        except KeyboardInterrupt:
-            print("Escaping parsing and plotting")
-            logger.info("Escaping parsing and plotting")
-            break
-        except OverflowError:
-            print("overflowing value. Skipping this gulp...")
-            logger.warning("overflowing value. Skipping this gulp...")
+        tab = cluster_heimdall.parse_candsfile(candsfile)
+        future = pool.submit(cluster_and_plot, tab, globct, gulp=gulp, selectcols=selectcols,
+                             outroot=outroot, plot_dir=plot_dir, trigger=trigger, lastname=lastname,
+                             cat=source_catalog, beam_model=model, coords=coords, snrs=snrs,
+                             prev_trig_time=prev_trig_time)
+        globct += 1
+        futures.append(future)
+        lastname, trigtime, futures = manage_futures(futures)  # returns latest result from iteration over futures
+        if trigtime is not None:
+            prev_trig_time = trigtime
 
-            print(candsfile)
-            gulp_status(3)
-            continue
-        gulp_status(0)  # success!
+
+def manage_futures(futures):
+    """ Take list of cluster_and_plot futures and handle the output.
+    Currently returns only one (lastname, trigtime) tuple for all futures that are done.
+    Small chance that lastname or prev_trig_time will not be updated correctly.
+    """
+
+    lastname, trigtime = None, None
+    print(f'Managing {len(futures)} futures')
+    done = []
+    for future in futures:
+        if future.done():
+            done.append(future)
+            try:
+                lastname,trigtime = future.result()
+                if trigtime is not None:
+                    print('new trigtime')
+                gulp_status(0)  # success!
+            except KeyboardInterrupt:
+                print("Escaping parsing and plotting")
+                logger.info("Escaping parsing and plotting")
+            except OverflowError:
+                print("overflowing value. Skipping this gulp...")
+                logger.warning("overflowing value. Skipping this gulp...")
+                gulp_status(3)
+
+    print(f'{len(done)} futures done')
+    futures = [fut for fut in futures if fut not in done]
+
+    return lastname, trigtime, futures
 
 
 def cluster_and_plot(tab, globct, gulp=None, selectcols=["itime", "idm", "ibox"],

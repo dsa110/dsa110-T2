@@ -3,7 +3,7 @@ import socket
 import numpy as np
 
 from T2 import cluster_heimdall
-from T2.timeout import timeout, TimeoutError
+import func_timeout as ft
 try:
     from T2 import triggering
 except ModuleNotFoundError:
@@ -198,8 +198,7 @@ def parse_socket(
 
         try:
             tab = cluster_heimdall.parse_candsfile(candsfile)
-
-            lastname,trigtime = cluster_and_plot_timeout(
+            lastname,trigtime = cluster_and_plot(
                 tab,
                 globct,
                 gulp=gulp,
@@ -214,6 +213,21 @@ def parse_socket(
                 snrs=snrs,
                 prev_trig_time=prev_trig_time
             )
+#            lastname,trigtime = ft.func_timeout(4.1,
+#                                                cluster_and_plot,
+#                                                args=(tab,globct),
+#                                                kwargs={'gulp':gulp,
+#                                                        'selectcols':selectcols,
+#                                                        'outroot':outroot,
+#                                                        'plot_dir':plot_dir,
+#                                                        'trigger':trigger,
+#                                                        'lastname':lastname,
+#                                                        'cat':source_catalog,
+#                                                        'beam_model':model,
+#                                                        'coords':coords,
+#                                                        'snrs':snrs,
+#                                                        'prev_trig_time':prev_trig_time}
+#                                                )
             if trigtime is not None:
                 prev_trig_time = trigtime
             globct += 1
@@ -221,10 +235,6 @@ def parse_socket(
             print("Escaping parsing and plotting")
             logger.info("Escaping parsing and plotting")
             break
-        except TimeoutError:
-            print("cluster_and_plot timed out. Skipping this gulp..")
-            logger.info("cluster_and_plot timed out. Skipping this gulp...")
-            gulp_status(3)
         except OverflowError:
             print("overflowing value. Skipping this gulp...")
             logger.warning("overflowing value. Skipping this gulp...")
@@ -234,33 +244,11 @@ def parse_socket(
             continue
         gulp_status(0)  # success!
 
-@timeout(3)
-def cluster_and_plot_timeout(tab, globct, gulp=None, selectcols=["itime", "idm", "ibox"],
-                             outroot=None, plot_dir=None, trigger=False, lastname=None,
-                             max_ncl=None, cat=None, beam_model=None, coords=None, snrs=None,
-                             prev_trig_time=None):
 
-    return cluster_and_plot(tab=tab, globct=globct, gulp=glup, selectcols=selectcols, outroot=outroot,
-                            plot_dir=plot_dir, trigger=trigger, lastname=lastname, max_ncl=max_ncl, cat=cat,
-                            beam_model=beam_model, coords=coords, snrs=snrs, prev_trig_time=prev_trig_time)
-
-        
-def cluster_and_plot(
-        tab,
-        globct,
-        gulp=None,
-        selectcols=["itime", "idm", "ibox"],
-        outroot=None,
-        plot_dir=None,
-        trigger=False,
-        lastname=None,
-        max_ncl=None,
-        cat=None,
-        beam_model=None,
-        coords=None,
-        snrs=None,
-        prev_trig_time=None
-    ):
+def cluster_and_plot(tab, globct, gulp=None, selectcols=["itime", "idm", "ibox"],
+                     outroot=None, plot_dir=None, trigger=False, lastname=None,
+                     max_ncl=None, cat=None, beam_model=None, coords=None,
+                     snrs=None, prev_trig_time=None):
     """
     Run clustering and plotting on read data.
     Can optionally save clusters as heimdall candidate table before filtering and json version of buffer trigger.
@@ -318,8 +306,23 @@ def cluster_and_plot(
     #target_params = (50.0, 100.0, 20.0)  # Galactic bursts
     target_params = None
 
-    ind = np.where(tab["ibox"]<32)[0]
-    tab = tab[ind]
+    #ind = np.where(tab["ibox"]<32)[0]
+    #tab = tab[ind]
+
+    # how many points
+    print(f"cluster_and_plot: have {len(tab)} inputs")
+    logger.info(f"cluster_and_plot: have {len(tab)} inputs")
+
+    
+    # raise SNR threshold in case of bright events
+    #max_snr = tab["snr"].max()
+    #snrthresh = max_snr-10.
+    #good = tab["snr"] > snrthresh
+    #tab = tab[good]
+    
+    # how many points
+    #print(f"cluster_and_plot: have {len(tab)} inputs ABOVE {snrthresh}")
+    #logger.info(f"cluster_and_plot: have {len(tab)} inputs ABOVE {snrthresh}")
     
     # cluster
     cluster_heimdall.cluster_data(

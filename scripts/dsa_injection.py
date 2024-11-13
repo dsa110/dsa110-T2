@@ -19,7 +19,7 @@ if not os.path.exists(fnout):
     f.close()
 
 # This file has the parameters for simulated FRBs
-scfac = 1.0
+scfac = 0.2
 params = np.genfromtxt('/home/ubuntu/simulated_frb_params.txt')
 print(params)
 flist = ['/home/ubuntu/data/burst_0.inject','/home/ubuntu/data/burst_1.inject','/home/ubuntu/data/burst_2.inject','/home/ubuntu/data/burst_3.inject','/home/ubuntu/data/burst_4.inject']
@@ -44,6 +44,6 @@ for kk in [17,18]:
         f.write(fmt_out % (imjd, beam, DM, SNR, Width_fwhm, spec_ind, frbno))
         f.close()
         print("Waiting to inject...")            
-        time.sleep(600)
+        time.sleep(1200)
 
 f.close()

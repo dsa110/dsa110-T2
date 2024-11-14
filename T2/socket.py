@@ -207,7 +207,11 @@ def parse_socket(
                              prev_trig_time=prev_trig_time)
         globct += 1
         futures.append(future)
-        lastname, trigtime, futures = manage_futures(futures)  # returns latest result from iteration over futures
+        try:
+            lastname, trigtime, futures = manage_futures(futures)  # returns latest result from iteration over futures
+        except:
+            for cl in cls:
+                cl.close()
         if trigtime is not None:
             prev_trig_time = trigtime
 
@@ -224,18 +228,22 @@ def manage_futures(futures):
     for future in futures:
         if future.done():
             done.append(future)
-            try:
-                lastname,trigtime = future.result()
-                if trigtime is not None:
-                    print('new trigtime')
-                gulp_status(0)  # success!
-            except KeyboardInterrupt:
+            lastname,trigtime = future.result()
+            if trigtime is not None:
+                print('new trigtime')
+            gulp_status(0)  # success!
+        elif future.running():
+            continue
+        else:
+            exc = future.exception(0.1)
+            if exc is KeyboardInterrupt:
                 print("Escaping parsing and plotting")
                 logger.info("Escaping parsing and plotting")
-            except OverflowError:
+            elif exc is OverflowError:
                 print("overflowing value. Skipping this gulp...")
                 logger.warning("overflowing value. Skipping this gulp...")
                 gulp_status(3)
+
 
     print(f'{len(done)} futures done')
     futures = [fut for fut in futures if fut not in done]

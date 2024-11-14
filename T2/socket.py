@@ -100,6 +100,10 @@ def parse_socket(
     pool = ThreadPoolExecutor(max_workers=10)
     futures = []
     while True:
+
+        if len(futures):
+            lastname, trigtime, futures = manage_futures(futures)
+
         if len(ss) != len(ports):
             for port in ports:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -165,27 +169,27 @@ def parse_socket(
                 f"not all clients received from same gulp: {set(gulps)}. Restarting socket connections."
             )
 
-#            for s in ss:
-#                s.close()
-#            time.sleep(0.1)
-#            ss = []
-#            for port in ports:
-#                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#                try:
-#                    s.bind((host, port))  # assigns the socket with an address
-#                except OSError:
-#                    print("socket bind failed.")
-#                    continue
-#                s.listen(1)  # accept no. of incoming connections
-#                ss.append(s)
+            for s in ss:
+                s.close()
+            time.sleep(0.1)
+            ss = []
+            for port in ports:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                try:
+                    s.bind((host, port))  # assigns the socket with an address
+                except OSError:
+                    print("socket bind failed.")
+                    continue
+                s.listen(1)  # accept no. of incoming connections
+                ss.append(s)
             gulp_status(2)
             continue
-#        else:
-#            gulp = set(gulps).pop()  # get gulp number
-#            ds.put_dict(
-#                "/mon/service/T2gulp",
-#                {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
-#            )
+        else:
+            gulp = set(gulps).pop()  # get gulp number
+            ds.put_dict(
+                "/mon/service/T2gulp",
+                {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
+            )
 
         if candsfile == "\n" or candsfile == "":  # skip empty candsfile
             print(f"candsfile is empty. Skipping.")
@@ -207,11 +211,15 @@ def parse_socket(
                              prev_trig_time=prev_trig_time)
         globct += 1
         futures.append(future)
+        print(f'Processing {len(futures)} gulps')
+
         try:
             lastname, trigtime, futures = manage_futures(futures)  # returns latest result from iteration over futures
         except:
+            print('Caught error in manage_futures. Closing sockets.')
             for cl in cls:
                 cl.close()
+
         if trigtime is not None:
             prev_trig_time = trigtime
 
@@ -223,30 +231,30 @@ def manage_futures(futures):
     """
 
     lastname, trigtime = None, None
-    print(f'Managing {len(futures)} futures')
     done = []
     for future in futures:
         if future.done():
             done.append(future)
             lastname,trigtime = future.result()
             if trigtime is not None:
-                print('new trigtime')
-            gulp_status(0)  # success!
+                gulp_status(0)  # success!
         elif future.running():
             continue
         else:
-            exc = future.exception(0.1)
-            if exc is KeyboardInterrupt:
+            print("Not done or running. Try getting result and catch errors")
+            try:
+                lastname,trigtime = future.result()
+            except KeyboardInterrupt:
                 print("Escaping parsing and plotting")
                 logger.info("Escaping parsing and plotting")
-            elif exc is OverflowError:
+            except OverflowError:
                 print("overflowing value. Skipping this gulp...")
                 logger.warning("overflowing value. Skipping this gulp...")
                 gulp_status(3)
 
-
-    print(f'{len(done)} futures done')
-    futures = [fut for fut in futures if fut not in done]
+    if len(done):
+        print(f'{len(done)} gulp future(s) done')
+        futures = [fut for fut in futures if fut not in done]
 
     return lastname, trigtime, futures
 

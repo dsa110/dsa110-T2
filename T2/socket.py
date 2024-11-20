@@ -28,7 +28,7 @@ except:
 from etcd3.exceptions import ConnectionFailedError
 from event import names
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import pandas
 
 try:
@@ -78,7 +78,7 @@ def parse_socket(
     assert isinstance(ports, list)
 
     lastname = names.get_lastname()
-    lastname_cleared = lastname
+#    lastname_cleared = lastname
 
     ss = []
 
@@ -97,12 +97,13 @@ def parse_socket(
     logger.info(f"Reading from {len(ports)} sockets...")
     print(f"Reading from {len(ports)} sockets...")
 
-    pool = ThreadPoolExecutor(max_workers=10)
-    futures = []
+    pool = ThreadPoolExecutor(max_workers=5)
+    futures = {}
+    trigtime = None
     while True:
 
         if len(futures):
-            lastname, trigtime, futures = manage_futures(futures)
+            lastname, trigtime, futures = manage_futures(lastname, trigtime, futures)
 
         if len(ss) != len(ports):
             for port in ports:
@@ -191,6 +192,9 @@ def parse_socket(
                 {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
             )
 
+        #gulp_status(0)
+        #continue
+
         if candsfile == "\n" or candsfile == "":  # skip empty candsfile
             print(f"candsfile is empty. Skipping.")
             logger.info(f"candsfile is empty. Skipping.")
@@ -199,22 +203,24 @@ def parse_socket(
             continue
 
         # send flush trigger after min_timedelt (once per candidate)
-        if Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
-            #ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
-            lastname_cleared = lastname   # reset to avoid continuous calls
-            prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
+#        if Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
+#            #ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
+#            lastname_cleared = lastname   # reset to avoid continuous calls
+#            prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
 
         tab = cluster_heimdall.parse_candsfile(candsfile)
-        future = pool.submit(cluster_and_plot, tab, globct, gulp=gulp, selectcols=selectcols,
+        now = Time.now()
+        key = f'{gulp}-{globct}-{now}'
+        future = pool.submit(cluster_and_plot, tab, gulp=gulp, selectcols=selectcols,
                              outroot=outroot, plot_dir=plot_dir, trigger=trigger, lastname=lastname,
                              cat=source_catalog, beam_model=model, coords=coords, snrs=snrs,
                              prev_trig_time=prev_trig_time)
         globct += 1
-        futures.append(future)
+        futures[key] = future
         print(f'Processing {len(futures)} gulps')
 
         try:
-            lastname, trigtime, futures = manage_futures(futures)  # returns latest result from iteration over futures
+            lastname, trigtime, futures = manage_futures(lastname, trigtime, futures)  # returns latest result from iteration over futures
         except:
             print('Caught error in manage_futures. Closing sockets.')
             for cl in cls:
@@ -224,26 +230,20 @@ def parse_socket(
             prev_trig_time = trigtime
 
 
-def manage_futures(futures):
+def manage_futures(lastname, trigtime, futures):
     """ Take list of cluster_and_plot futures and handle the output.
     Currently returns only one (lastname, trigtime) tuple for all futures that are done.
     Small chance that lastname or prev_trig_time will not be updated correctly.
     """
 
-    lastname, trigtime = None, None
     done = []
-    for future in futures:
+    for k, future in futures.items():
         if future.done():
-            done.append(future)
-            lastname,trigtime = future.result()
-            if trigtime is not None:
-                gulp_status(0)  # success!
-        elif future.running():
-            continue
-        else:
-            print("Not done or running. Try getting result and catch errors")
+            done.append(k)
             try:
                 lastname,trigtime = future.result()
+                if trigtime is not None:
+                    gulp_status(0)  # success!
             except KeyboardInterrupt:
                 print("Escaping parsing and plotting")
                 logger.info("Escaping parsing and plotting")
@@ -253,13 +253,15 @@ def manage_futures(futures):
                 gulp_status(3)
 
     if len(done):
-        print(f'{len(done)} gulp future(s) done')
-        futures = [fut for fut in futures if fut not in done]
+        for k in done:
+            _ = futures.pop(k)
+
+        print(f'{len(done)} gulp future(s) completed')
 
     return lastname, trigtime, futures
 
 
-def cluster_and_plot(tab, globct, gulp=None, selectcols=["itime", "idm", "ibox"],
+def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
                      outroot=None, plot_dir=None, trigger=False, lastname=None,
                      max_ncl=None, cat=None, beam_model=None, coords=None,
                      snrs=None, prev_trig_time=None):
@@ -275,7 +277,7 @@ def cluster_and_plot(tab, globct, gulp=None, selectcols=["itime", "idm", "ibox"]
     # TODO: put these in json config file
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
-    columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','snrs0','beams0','snrs1','beams1','snrs2','beams2','snrs3','beams3','snrs4','beams4','trigger']
+    columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','snrs0','beams0','snrs1','beams1','snrs2','beams2','snrs3','beams3','snrs4','beams4','snrs5','beams5','snrs6','beams6','snrs7','beams7','snrs8','beams8','snrs9','beams9','trigger']
     
     # obtain this from etcd
     # TODO: try a timeout exception
@@ -429,15 +431,15 @@ def cluster_and_plot(tab, globct, gulp=None, selectcols=["itime", "idm", "ibox"]
 #            os.system("cat "+output_file+" >> "+outroot+output_mjd+".csv")
 #            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
-            df0 = pandas.read_csv(output_file, delimiter=' ', names=columns)
+            df0 = pandas.read_csv(output_file, delimiter=' ', names=columns, on_bad_lines='warn')
 
             dfs = [df0]
             if os.path.exists(fl1):  # accumulate to yesterday's for rolling 2-day file
-                df1 = pandas.read_csv(fl1)
+                df1 = pandas.read_csv(fl1, on_bad_lines='warn')
                 dfs.append(df1)
 
             if os.path.exists(fl2):  # accumulate to today's for 1-day file
-                df2 = pandas.read_csv(fl2)
+                df2 = pandas.read_csv(fl2, on_bad_lines='warn')
                 dfs.append(df2)
                 dfc2 = pandas.concat( (df0, df2) )
                 dfc2.to_csv(fl2, index=False)

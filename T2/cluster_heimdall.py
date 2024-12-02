@@ -273,7 +273,7 @@ def get_peak(tab, nsnr=NSNR):
         # iterate to get max snr per beam
         ss = np.zeros(512, dtype=float)
         tcl = tab[tab['cl'] == c]   # TODO this is probably very slow        
-        for i in tcl['ibeam']:
+        for i in np.unique(tcl['ibeam']):
             maxsnr = tcl[tcl['ibeam'] == i]['snr'].max()
             ss[i] = maxsnr
         beams[:, iii] = ss.argsort()[::-1][:nsnr]
@@ -293,7 +293,6 @@ def get_peak(tab, nsnr=NSNR):
         for i in range(nsnr):
             tab2[f'snrs{i}'] = list(snrs[i])
             tab2[f'beams{i}'] = list(beams[i])
-
 
     logger.info(f"Found {len(ipeak)} cluster peaks")
     print(f"Found {len(ipeak)} cluster peaks")

@@ -143,6 +143,21 @@ def parse_candsfile(candsfile):
     #    return tab, data, snrs
     return tab
 
+def flag_beams(tab,stat=5e5):
+
+    tab2 = tab
+    bms = np.unique(np.asarray(tab["ibeam"]))
+    stds = np.zeros(len(bms))
+    for i in np.arange(len(bms)):
+        tt = tab[tab["ibeam"]==bms[i]]["dm"]
+        stds[i] = np.std(tt)
+        stds[i] *= len(tt)
+        if stds[i]>stat:
+            print(f"Flagging beam {bms[i]}")
+            tab2 = tab2[tab2["ibeam"]!=bms[i]]
+            
+    return tab2
+                                                                                            
 
 def cluster_data(
     tab,
@@ -228,6 +243,9 @@ def get_peak(tab, nsnr=NSNR):
     ncl = len(np.unique(cl))
     snrs = tab["snr"]
     ipeak = []
+
+    print("finding unique clusters")
+    
     for c in np.unique(cl):
         if c == -1:
             continue
@@ -245,13 +263,16 @@ def get_peak(tab, nsnr=NSNR):
     beams = np.zeros((nsnr, ncl), dtype=int)
     snrs = np.zeros((nsnr, ncl), dtype=float)
     iii = 0
+
+    print("getting max snr per beam")
+    
     for c in np.unique(cl):
         if c == -1:
             continue
         
         # iterate to get max snr per beam
         ss = np.zeros(512, dtype=float)
-        tcl = tab[tab['cl'] == c]   # TODO this is probably very slow
+        tcl = tab[tab['cl'] == c]   # TODO this is probably very slow        
         for i in tcl['ibeam']:
             maxsnr = tcl[tcl['ibeam'] == i]['snr'].max()
             ss[i] = maxsnr
@@ -446,9 +467,13 @@ def dump_cluster_results_json(
         sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/(3600*24)
         sel_dm = np.abs(tab_inj["DM"] - dm) < dm_close
         sel_beam = np.abs(tab_inj["Beam"] - ibeam) < beam_close
-        print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}")
+        sel_beam_2 = np.abs(tab_inj["Beam"]+256 - ibeam) < beam_close
+        print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}, beam2 {sel_beam_2.any()}")
         sel = sel_t*sel_dm*sel_beam
+        sel2 = sel_t*sel_dm*sel_beam_2
         if len(np.where(sel)[0]):
+            isinjection = True
+        if len(np.where(sel2)[0]):
             isinjection = True
 
         if time.Time.now().mjd - mjd > 13:

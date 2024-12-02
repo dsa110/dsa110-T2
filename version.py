@@ -96,8 +96,8 @@ def get_git_version(abbrev=7):
         version = call_git_describe(abbrev).decode('UTF-8')
     else:
         version = '0.0.0'
-    if is_dirty():
-        version += "-dirty"
+#    if is_dirty():
+#        version += "-dirty"
 
     # If that doesn't work, fall back on the value that's in
     # RELEASE-VERSION.

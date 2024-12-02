@@ -34,6 +34,7 @@ from event import names  # TODO: add event to get DSAEvent class
 # half second at heimdall time resolution (after march 18)
 offset = 1907
 downsample = 4
+NSNR = 10
 
 
 def parse_candsfile(candsfile):
@@ -142,6 +143,21 @@ def parse_candsfile(candsfile):
     #    return tab, data, snrs
     return tab
 
+def flag_beams(tab,stat=5e5):
+
+    tab2 = tab
+    bms = np.unique(np.asarray(tab["ibeam"]))
+    stds = np.zeros(len(bms))
+    for i in np.arange(len(bms)):
+        tt = tab[tab["ibeam"]==bms[i]]["dm"]
+        stds[i] = np.std(tt)
+        stds[i] *= len(tt)
+        if stds[i]>stat:
+            print(f"Flagging beam {bms[i]}")
+            tab2 = tab2[tab2["ibeam"]!=bms[i]]
+            
+    return tab2
+                                                                                            
 
 def cluster_data(
     tab,
@@ -211,7 +227,7 @@ def cluster_data(
         return clusterer
 
 
-def get_peak(tab, nsnr=5):
+def get_peak(tab, nsnr=NSNR):
     """Given labeled data of search output from two arms, find snr distribution per cluster
     Adds in count of candidates in same beam and same cluster.
     Add SNR from top nsnr beams as new columns (snr1, snr2, ..., snr<nsnr>) per arm.
@@ -227,6 +243,9 @@ def get_peak(tab, nsnr=5):
     ncl = len(np.unique(cl))
     snrs = tab["snr"]
     ipeak = []
+
+    print("finding unique clusters")
+    
     for c in np.unique(cl):
         if c == -1:
             continue
@@ -244,13 +263,16 @@ def get_peak(tab, nsnr=5):
     beams = np.zeros((nsnr, ncl), dtype=int)
     snrs = np.zeros((nsnr, ncl), dtype=float)
     iii = 0
+
+    print("getting max snr per beam")
+    
     for c in np.unique(cl):
         if c == -1:
             continue
         
         # iterate to get max snr per beam
         ss = np.zeros(512, dtype=float)
-        tcl = tab[tab['cl'] == c]   # TODO this is probably very slow
+        tcl = tab[tab['cl'] == c]   # TODO this is probably very slow        
         for i in tcl['ibeam']:
             maxsnr = tcl[tcl['ibeam'] == i]['snr'].max()
             ss[i] = maxsnr
@@ -296,6 +318,7 @@ def filter_clustered(
         max_ncl=None,
         target_params=None,
         frac_wide=0.0,
+        nsnr=NSNR
 ):
     """Function to select a subset of clustered output.
     Can set minimum SNR, min/max number of beams in cluster, min/max total count in cluster.
@@ -314,8 +337,8 @@ def filter_clustered(
         if min_snrt is None:
             # snr limit for narrow and wide, with requirement of at least two beams
             df = tab.to_pandas()
-            nsarr = ((df[[f'beams{i}' for i in range(5)]].values > 255)) & (df[[f'snrs{i}' for i in range(5)]].values > 0)
-            ewarr = ((df[[f'beams{i}' for i in range(5)]].values <= 255)) & (df[[f'snrs{i}' for i in range(5)]].values > 0)
+            nsarr = ((df[[f'beams{i}' for i in range(nsnr)]].values > 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
+            ewarr = ((df[[f'beams{i}' for i in range(nsnr)]].values <= 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
             twoarm = ewarr.any(axis=1) & nsarr.any(axis=1)
 #            print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox) * twoarm
@@ -384,7 +407,7 @@ def get_nbeams(tab, threshold=7.5):
 def dump_cluster_results_json(
         tab,
         outputfile=None,
-        output_cols=["mjds", "snr", "ibox", "dm", "ibeam", "cntb", "cntc"] + [f'snrs{i}' for i in range(5)] + [f'beams{i}' for i in range(5)],
+        output_cols=["mjds", "snr", "ibox", "dm", "ibeam", "cntb", "cntc"] + [f'snrs{i}' for i in range(NSNR)] + [f'beams{i}' for i in range(NSNR)],
         trigger=False,
         lastname=None,
         gulp=None,
@@ -403,7 +426,7 @@ def dump_cluster_results_json(
     """
     Takes tab from parse_candsfile and clsnr from get_peak,
     json file will be named with generated name, unless outputfile is set
-    TODO: make cleaner, as it currently assumes nsnr=5 as in get_peak.
+    TODO: make cleaner, as it currently assumes NSNR at compile time.
     candidate name and specnum is calculated. name is unique.
     trigger is bool to update DsaStore to trigger data dump.
     cat is path to source catalog (default None)
@@ -444,9 +467,13 @@ def dump_cluster_results_json(
         sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/(3600*24)
         sel_dm = np.abs(tab_inj["DM"] - dm) < dm_close
         sel_beam = np.abs(tab_inj["Beam"] - ibeam) < beam_close
-        print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}")
+        sel_beam_2 = np.abs(tab_inj["Beam"]+256 - ibeam) < beam_close
+        print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}, beam2 {sel_beam_2.any()}")
         sel = sel_t*sel_dm*sel_beam
+        sel2 = sel_t*sel_dm*sel_beam_2
         if len(np.where(sel)[0]):
+            isinjection = True
+        if len(np.where(sel2)[0]):
             isinjection = True
 
         if time.Time.now().mjd - mjd > 13:

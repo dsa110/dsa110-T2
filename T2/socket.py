@@ -1,9 +1,8 @@
 import socket
-
 import numpy as np
 
 from T2 import cluster_heimdall
-
+import func_timeout as ft
 try:
     from T2 import triggering
 except ModuleNotFoundError:
@@ -28,6 +27,7 @@ except:
 from etcd3.exceptions import ConnectionFailedError
 from event import names
 import os
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import pandas
 
 try:
@@ -77,10 +77,11 @@ def parse_socket(
     assert isinstance(ports, list)
 
     lastname = names.get_lastname()
-    lastname_cleared = lastname
+#    lastname_cleared = lastname
 
     ss = []
-
+    cls = []
+    
     # pre-calculate beam model and get source catalog
     if source_catalog is not None:
         # model = triggering.get_2Dbeam_model()
@@ -95,7 +96,16 @@ def parse_socket(
 
     logger.info(f"Reading from {len(ports)} sockets...")
     print(f"Reading from {len(ports)} sockets...")
+
+    pool = ThreadPoolExecutor(max_workers=10)
+    futures = {}
+    trigtime = None
     while True:
+
+        if len(futures):
+            lastname, trigtime, futures = manage_futures(lastname, trigtime, futures)
+
+        # set up socket connections if needed
         if len(ss) != len(ports):
             for port in ports:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -103,12 +113,8 @@ def parse_socket(
                 s.listen(1)  # accept no. of incoming connections
                 ss.append(s)
                 #print(f"Appended socket for port {port} on host {host}")
-                
-        ds.put_dict(
-            "/mon/service/T2service",
-            {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
-        )
 
+        # accept new socket connections
         cls = []
         try:
             for s in ss:
@@ -117,35 +123,43 @@ def parse_socket(
                     address,
                 ) = s.accept()  # stores the socket details in 2 variables
                 cls.append(clientsocket)
-                #print("appended")
+                
         except KeyboardInterrupt:
             print("Escaping socket connection")
             logger.info("Escaping socket connection")
             break
 
+
+                
+        ds.put_dict(
+            "/mon/service/T2service",
+            {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
+        )
+
         # read in heimdall socket output
         candsfile = ""
         gulps = []
         for cl in cls:
-            cf = recvall(cl, 100000000).decode("utf-8")
 
+            cf = recvall(cl, 1000000000).decode("utf-8")                
             gulp, *lines = cf.split("\n")
             #print(cl,gulp)
+
             try:
-                gulp = int(gulp)
+                gulp = int(gulp)                    
             #                print(f"received gulp {gulp} with {len(lines)-1} lines")
             except ValueError:
                 print(
                     f"Could not get int from this read ({gulp}). Skipping this client."
                 )
                 continue
-
-            gulps.append(gulp)
+                                        
             cl.close()
-
+            gulps.append(gulp)                
             if len(lines) > 1:
                 if len(lines[0]) > 0:
                     candsfile += "\n".join(lines)
+
 
         print(f"Received gulp_i {gulps}; prev_trig_time {prev_trig_time}")
         if len(gulps) != len(cls):
@@ -161,6 +175,10 @@ def parse_socket(
                 f"not all clients received from same gulp: {set(gulps)}. Restarting socket connections."
             )
 
+            for cl in cls:
+                cl.close()
+            time.sleep(0.1)
+            cls = []
             for s in ss:
                 s.close()
             time.sleep(0.1)
@@ -183,6 +201,10 @@ def parse_socket(
                 {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
             )
 
+        # uncomment to not process cands
+        #gulp_status(0)
+        #continue
+
         if candsfile == "\n" or candsfile == "":  # skip empty candsfile
             print(f"candsfile is empty. Skipping.")
             logger.info(f"candsfile is empty. Skipping.")
@@ -191,62 +213,73 @@ def parse_socket(
             continue
 
         # send flush trigger after min_timedelt (once per candidate)
-        if Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
-            #ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
-            lastname_cleared = lastname   # reset to avoid continuous calls
-            prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
+#        if Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
+#            #ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
+#            lastname_cleared = lastname   # reset to avoid continuous calls
+#            prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
 
-        try:
-            tab = cluster_heimdall.parse_candsfile(candsfile)
+        tab = cluster_heimdall.parse_candsfile(candsfile)
 
-            lastname,trigtime = cluster_and_plot(
-                tab,
-                globct,
-                gulp=gulp,
-                selectcols=selectcols,
-                outroot=outroot,
-                plot_dir=plot_dir,
-                trigger=trigger,
-                lastname=lastname,
-                cat=source_catalog,
-                beam_model=model,
-                coords=coords,
-                snrs=snrs,
-                prev_trig_time=prev_trig_time
-            )
+        # to handle too many futures
+        if len(futures)>2:
+            print(f"Waiting for >2 futures to finish -- skipping {gulps}")
+        else:
+            now = Time.now()
+            key = f'{gulp}-{globct}-{now}'
+            future = pool.submit(cluster_and_plot, tab, gulp=gulp, selectcols=selectcols,
+                                 outroot=outroot, plot_dir=plot_dir, trigger=trigger, lastname=lastname,
+                                 cat=source_catalog, beam_model=model, coords=coords, snrs=snrs,
+                                 prev_trig_time=prev_trig_time)
+            globct += 1
+            futures[key] = future
+            print(f'Processing {len(futures)} gulps')
+
+            try:
+                lastname, trigtime, futures = manage_futures(lastname, trigtime, futures)  # returns latest result from iteration over futures
+            except:
+                print('Caught error in manage_futures. Closing sockets.')
+                for cl in cls:
+                    cl.close()
+
             if trigtime is not None:
                 prev_trig_time = trigtime
-            globct += 1
-        except KeyboardInterrupt:
-            print("Escaping parsing and plotting")
-            logger.info("Escaping parsing and plotting")
-            break
-        except OverflowError:
-            print("overflowing value. Skipping this gulp...")
-            logger.warning("overflowing value. Skipping this gulp...")
-
-            print(candsfile)
-            gulp_status(3)
-            continue
-        gulp_status(0)  # success!
 
 
-def cluster_and_plot(
-        tab,
-        globct,
-        gulp=None,
-        selectcols=["itime", "idm", "ibox"],
-        outroot=None,
-        plot_dir=None,
-        trigger=False,
-        lastname=None,
-        max_ncl=None,
-        cat=None,
-        beam_model=None,
-        coords=None,
-        snrs=None,
-        prev_trig_time=None
-    ):
+def manage_futures(lastname, trigtime, futures):
+    """ Take list of cluster_and_plot futures and handle the output.
+    Currently returns only one (lastname, trigtime) tuple for all futures that are done.
+    Small chance that lastname or prev_trig_time will not be updated correctly.
+    """
+
+    done = []
+    for k, future in futures.items():
+        if future.done():
+            done.append(k)
+            try:
+                lastname,trigtime = future.result()
+                if trigtime is not None:
+                    gulp_status(0)  # success!
+            except KeyboardInterrupt:
+                print("Escaping parsing and plotting")
+                logger.info("Escaping parsing and plotting")
+            except OverflowError:
+                print("overflowing value. Skipping this gulp...")
+                logger.warning("overflowing value. Skipping this gulp...")
+                gulp_status(3)
+
+    if len(done):
+        for k in done:
+            _ = futures.pop(k)
+
+        print(f'{len(done)} gulp future(s) completed')
+
+    return lastname, trigtime, futures
+
+
+def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
+                     outroot=None, plot_dir=None, trigger=False, lastname=None,
+                     max_ncl=None, cat=None, beam_model=None, coords=None,
+                     snrs=None, prev_trig_time=None):
     """
     Run clustering and plotting on read data.
     Can optionally save clusters as heimdall candidate table before filtering and json version of buffer trigger.
@@ -259,7 +292,7 @@ def cluster_and_plot(
     # TODO: put these in json config file
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
-    columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','snrs0','beams0','snrs1','beams1','snrs2','beams2','snrs3','beams3','snrs4','beams4','trigger']
+    columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','snrs0','beams0','snrs1','beams1','snrs2','beams2','snrs3','beams3','snrs4','beams4','snrs5','beams5','snrs6','beams6','snrs7','beams7','snrs8','beams8','snrs9','beams9','trigger']
     
     # obtain this from etcd
     # TODO: try a timeout exception
@@ -304,8 +337,27 @@ def cluster_and_plot(
     #target_params = (50.0, 100.0, 20.0)  # Galactic bursts
     target_params = None
 
-    ind = np.where(tab["ibox"]<32)[0]
-    tab = tab[ind]
+    #ind = np.where(tab["ibox"]<32)[0]
+    #tab = tab[ind]
+
+    # how many points
+    print(f"cluster_and_plot: have {len(tab)} inputs")
+    logger.info(f"cluster_and_plot: have {len(tab)} inputs")
+
+    
+    # raise SNR threshold in case of bright events
+    #max_snr = tab["snr"].max()
+    #snrthresh = max_snr-10.
+    #good = tab["snr"] > snrthresh
+    #tab = tab[good]
+    
+    # how many points
+    #print(f"cluster_and_plot: have {len(tab)} inputs ABOVE {snrthresh}")
+    #logger.info(f"cluster_and_plot: have {len(tab)} inputs ABOVE {snrthresh}")
+
+    # flag beams
+    mytab = cluster_heimdall.flag_beams(tab)
+    tab = mytab
     
     # cluster
     cluster_heimdall.cluster_data(
@@ -398,15 +450,15 @@ def cluster_and_plot(
 #            os.system("cat "+output_file+" >> "+outroot+output_mjd+".csv")
 #            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
-            df0 = pandas.read_csv(output_file, delimiter=' ', names=columns)
+            df0 = pandas.read_csv(output_file, delimiter=' ', names=columns, on_bad_lines='warn')
 
             dfs = [df0]
             if os.path.exists(fl1):  # accumulate to yesterday's for rolling 2-day file
-                df1 = pandas.read_csv(fl1)
+                df1 = pandas.read_csv(fl1, on_bad_lines='warn')
                 dfs.append(df1)
 
             if os.path.exists(fl2):  # accumulate to today's for 1-day file
-                df2 = pandas.read_csv(fl2)
+                df2 = pandas.read_csv(fl2, on_bad_lines='warn')
                 dfs.append(df2)
                 dfc2 = pandas.concat( (df0, df2) )
                 dfc2.to_csv(fl2, index=False)
@@ -415,29 +467,6 @@ def cluster_and_plot(
 
             dfc = pandas.concat(dfs)
             dfc.to_csv(ofl, index=False)
-
-#            try:
-#                a = np.genfromtxt(fl1,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-#                p = pandas.DataFrame(a)  # overwrite in correct format
-#                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-#                p.to_csv(fl1,index=False)
-#
-#                b = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-#                p = pandas.DataFrame(b)  # overwrite in correct format
-#                p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-#                p.to_csv(fl2,index=False)
-#
-#                c = np.concatenate((a,b),axis=0)
-#            except:
-#                c = np.genfromtxt(fl2,skip_header=1,invalid_raise=False,dtype=None, encoding='latin1')
-
-#            p = pandas.DataFrame(c)
-#            p.columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','trigger']
-
-            
-#os.system("echo 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' > "+outroot+"cluster_output.csv")
-            #os.system("test -f "+outroot+old_mjd+".csv && tail -n +2 "+outroot+old_mjd+".csv >> "+outroot+"cluster_output.csv")
-            #os.system("tail -n +2 "+outroot+output_mjd+".csv >> "+outroot+"cluster_output.csv")
 
     return lastname, trigtime
 
@@ -448,11 +477,15 @@ def recvall(sock, n):
     sock: open socket
     n: maximum number of bytes to expect. you can make this ginormous!
     """
-
+    
     data = bytearray()
-    while len(data) < n:
-        packet = sock.recv(n - len(data))
-        if not packet:
+    while len(data) < n-1:
+        try:
+            packet = sock.recv(n - len(data))
+            if not packet:
+                return data
+        except socket.timeout:
+            print(f"Only received {n} of 1e6")
             return data
         data.extend(packet)
 

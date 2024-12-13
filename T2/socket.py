@@ -221,7 +221,7 @@ def parse_socket(
         tab = cluster_heimdall.parse_candsfile(candsfile)
 
         # to handle too many futures
-        if len(futures)>2:
+        if len(futures)>1:
             print(f"Waiting for >2 futures to finish -- skipping {gulps}")
         else:
             now = Time.now()

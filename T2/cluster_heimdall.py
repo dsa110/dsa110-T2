@@ -339,9 +339,13 @@ def filter_clustered(
             nsarr = ((df[[f'beams{i}' for i in range(nsnr)]].values > 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
             ewarr = ((df[[f'beams{i}' for i in range(nsnr)]].values <= 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
             twoarm = ewarr.any(axis=1) & nsarr.any(axis=1)
-#            print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
-            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox) * twoarm
-            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox) * twoarm
+            print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
+
+            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
+            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
+            print(f'good0: {good0}; good1: {good1}')
+            good0 *= twoarm
+            good1 *= twoarm
             good *= good0 + good1
         else:
             # print(f'min_snr={min_snr}, min_snrt={min_snrt}, min_dmt={min_dmt}, max_dmt={max_dmt}, tab={tab[["snr", "dm"]]}')
@@ -472,18 +476,21 @@ def dump_cluster_results_json(
         sel2 = sel_t*sel_dm*sel_beam_2
         if len(np.where(sel)[0]):
             isinjection = True
+            selt = sel
         if len(np.where(sel2)[0]):
             isinjection = True
+            selt = sel2
 
         if time.Time.now().mjd - mjd > 13:
             logger.warning("Event MJD is {mjd}, which is more than 13 days in the past. SNAP counter overflow?")
 
     if isinjection:
         basename = names.increment_name(mjd, lastname=lastname)
-        candname = f"{basename}_inj{tab_inj[sel]['FRBno'][0]}"
+        print(tab_inj[selt])
+        candname = f"{basename}_inj{tab_inj[selt][-1]['FRBno']}"
         print(f"Candidate identified as injection. Naming it {candname}")
-        if len(sel) > 1:
-            print(f"Found {len(sel)} injections coincident with this event. Using first.")
+        if len(selt) > 1:
+            print(f"Found {len(selt)} injections coincident with this event. Using first.")
         # if injection is found, skip the voltage trigger via etcd
     else:
         # if no injection file or no coincident injection

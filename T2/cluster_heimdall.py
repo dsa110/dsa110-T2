@@ -51,33 +51,15 @@ def parse_candsfile(candsfile):
     #    candsfile = '\n'.join([line for line in candsfile.split('\n') if line.count(' ') == 7])
     #    print(f'Received {ncands0} candidates, removed {ncands0-ncands} lines.')
     col_heimdall = ["snr", "if", "itime", "mjds", "ibox", "idm", "dm", "ibeam"]
-    col_T2old = [
-        "snr",
-        "if",
-        "itime",
-        "mjds",
-        "ibox",
-        "idm",
-        "dm",
-        "ibeam",
-        "cl",
-        "cntc",
-        "cntb",
-    ]
-    col_T2 = [
-        "snr",
-        "if",
-        "itime",
-        "mjds",
-        "ibox",
-        "idm",
-        "dm",
-        "ibeam",
-        "cl",
-        "cntc",
-        "cntb",
-        "trigger",
-    ]
+    col_T2old = ["snr", "if", "itime", "mjds", "ibox", "idm", "dm", "ibeam",
+                 "cl", "cntc", "cntb"]
+    col_T2nobeams = ["snr", "if", "itime", "mjds", "ibox",
+                     "idm", "dm", "ibeam", "cl", "cntc", "cntb", "trigger"]
+    col_T2 = ['snr','if','itime','mjds','ibox','idm','dm',
+              'ibeam','cl','cntc','cntb','snrs0','beams0','snrs1',
+              'beams1','snrs2','beams2','snrs3','beams3','snrs4',
+              'beams4','snrs5','beams5','snrs6','beams6','snrs7',
+              'beams7','snrs8','beams8','snrs9','beams9','trigger']
 
     # flag for heimdall file
     hdfile = False
@@ -107,7 +89,7 @@ def parse_candsfile(candsfile):
             try:
                 tab = ascii.read(
                     candsfile,
-                    names=col_T2old,
+                    names=col_T2nobeams,
                     guess=True,
                     fast_reader=False,
                     format="no_header",
@@ -115,8 +97,19 @@ def parse_candsfile(candsfile):
                 hdfile = False
                 logger.debug("Read with old style T2 columns")
             except InconsistentTableError:
-                logger.warning("Inconsistent table. Skipping...")
-                return ([], [], [])
+                try:
+                    tab = ascii.read(
+                        candsfile,
+                        names=col_T2old,
+                        guess=True,
+                        fast_reader=False,
+                        format="no_header",
+                    )
+                    hdfile = False
+                    logger.debug("Read with old style T2 columns")
+                except InconsistentTableError:
+                    logger.warning("Inconsistent table. Skipping...")
+                    return []
 
     tab["ibeam"] = tab["ibeam"].astype(int)
     tab["idm"] = tab["idm"].astype(int)
@@ -666,8 +659,8 @@ def dump_cluster_results_heimdall(
 ):
     """
     Takes tab from parse_candsfile and clsnr from get_peak,
-    output T2-clustered results with the same columns as heimdall.cand into a file outputfile.
-    The output is in pandas format with column names in the 1st row.
+    output T2-clustered results.
+    Both T1 (heimdall) and T2 outputs are named "*.cand" and can be parsed by parse_candsfile().
     min_snr_t2out is a min snr on candidates to write.
     max_ncl is number of rows to write.
     """

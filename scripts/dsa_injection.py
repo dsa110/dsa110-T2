@@ -44,6 +44,6 @@ for kk in [17,18]:
         f.write(fmt_out % (imjd, beam, DM, SNR, Width_fwhm, spec_ind, frbno))
         f.close()
         print("Waiting to inject...")            
-        time.sleep(1200)
+        time.sleep(3000)
 
 f.close()

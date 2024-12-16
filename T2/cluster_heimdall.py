@@ -300,6 +300,7 @@ def filter_clustered(
         min_dm=50,
         min_snr=8,
         min_snr_wide=9,
+        min_snr_1arm=10,
         wide_ibox=17,
         max_ibox=33,
         min_cntb=None,
@@ -332,6 +333,7 @@ def filter_clustered(
             nsarr = ((df[[f'beams{i}' for i in range(nsnr)]].values > 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
             ewarr = ((df[[f'beams{i}' for i in range(nsnr)]].values <= 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
             twoarm = ewarr.any(axis=1) & nsarr.any(axis=1)
+            twoarm = (ewarr.any(axis=1) & nsarr.any(axis=1)) | (df['snr'].values > min_snr_1arm).any()
             print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
 
             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)

@@ -26,7 +26,7 @@ flist = ['/home/ubuntu/data/burst_0.inject','/home/ubuntu/data/burst_1.inject','
 nfrb = len(flist)
 
 for kk in [17,18]:
-    for ii in range(128):
+    for ii in np.arange(128):
             
         f = open(fnout,'a')
         subbeam = ii
@@ -44,6 +44,6 @@ for kk in [17,18]:
         f.write(fmt_out % (imjd, beam, DM, SNR, Width_fwhm, spec_ind, frbno))
         f.close()
         print("Waiting to inject...")            
-        time.sleep(3000)
+        time.sleep(1600)
 
 f.close()

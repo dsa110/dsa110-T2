@@ -334,11 +334,11 @@ def filter_clustered(
             ewarr = ((df[[f'beams{i}' for i in range(nsnr)]].values <= 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
             twoarm = ewarr.any(axis=1) & nsarr.any(axis=1)
             twoarm = (ewarr.any(axis=1) & nsarr.any(axis=1)) | (df['snr'].values > min_snr_1arm).any()
-            print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
+            #print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
 
             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
             good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
-            print(f'good0: {good0}; good1: {good1}')
+            #print(f'good0: {good0}; good1: {good1}')
             good0 *= twoarm
             good1 *= twoarm
             good *= good0 + good1
@@ -466,7 +466,7 @@ def dump_cluster_results_json(
         sel_dm = np.abs(tab_inj["DM"] - dm) < dm_close
         sel_beam = np.abs(tab_inj["Beam"] - ibeam) < beam_close
         sel_beam_2 = np.abs(tab_inj["Beam"]+256 - ibeam) < beam_close
-        print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}, beam2 {sel_beam_2.any()}")
+        #print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}, beam2 {sel_beam_2.any()}")
         sel = sel_t*sel_dm*sel_beam
         sel2 = sel_t*sel_dm*sel_beam_2
         if len(np.where(sel)[0]):

@@ -77,7 +77,7 @@ def parse_socket(
     assert isinstance(ports, list)
 
     lastname = names.get_lastname()
-#    lastname_cleared = lastname
+    lastname_cleared = lastname
 
     ss = []
     cls = []
@@ -104,6 +104,10 @@ def parse_socket(
 
         if len(futures):
             lastname, trigtime, futures = manage_futures(lastname, trigtime, futures)
+
+        if trigtime is not None:
+            prev_trig_time = trigtime
+            
 
         # set up socket connections if needed
         if len(ss) != len(ports):
@@ -205,6 +209,20 @@ def parse_socket(
         #gulp_status(0)
         #continue
 
+                # send flush trigger after min_timedelt (once per candidate)
+        if (Time.now() - prev_trig_time).value > min_timedelt/86400. and lastname_cleared != lastname:
+            print("Sending flush trigger")
+            logger.info("Sending flush trigger")
+            ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
+            lastname_cleared = lastname   # reset to avoid continuous calls
+            prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
+        else:
+            print(f"Cannot send flush: {Time.now() - prev_trig_time} {min_timedelt/86400.}")
+            logger.info(f"Cannot send flush: {Time.now() - prev_trig_time} {min_timedelt/86400.}")
+            print(f"{lastname_cleared} {lastname}")
+            logger.info(f"{lastname_cleared} {lastname}")
+
+        
         if candsfile == "\n" or candsfile == "":  # skip empty candsfile
             print(f"candsfile is empty. Skipping.")
             logger.info(f"candsfile is empty. Skipping.")
@@ -212,17 +230,12 @@ def parse_socket(
             gulp_status(0)
             continue
 
-        # send flush trigger after min_timedelt (once per candidate)
-#        if Time.now() - prev_trig_time > min_timedelt*units.s and lastname_cleared != lastname:
-#            #ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
-#            lastname_cleared = lastname   # reset to avoid continuous calls
-#            prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
 
         tab = cluster_heimdall.parse_candsfile(candsfile)
 
         # to handle too many futures
-        if len(futures)>2:
-            print(f"Waiting for >2 futures to finish -- skipping {gulps}")
+        if len(futures)>1:
+            print(f"Waiting for >=2 futures to finish -- skipping {gulps}")
         else:
             now = Time.now()
             key = f'{gulp}-{globct}-{now}'
@@ -235,6 +248,7 @@ def parse_socket(
             print(f'Processing {len(futures)} gulps')
 
             try:
+                
                 lastname, trigtime, futures = manage_futures(lastname, trigtime, futures)  # returns latest result from iteration over futures
             except:
                 print('Caught error in manage_futures. Closing sockets.')
@@ -245,18 +259,19 @@ def parse_socket(
                 prev_trig_time = trigtime
 
 
-def manage_futures(lastname, trigtime, futures):
+def manage_futures(old_lastname, old_trigtime, futures):
     """ Take list of cluster_and_plot futures and handle the output.
     Currently returns only one (lastname, trigtime) tuple for all futures that are done.
     Small chance that lastname or prev_trig_time will not be updated correctly.
     """
 
     done = []
+    triggered = False
     for k, future in futures.items():
         if future.done():
             done.append(k)
             try:
-                lastname,trigtime = future.result()
+                lastname,trigtime,triggered = future.result()
                 if trigtime is not None:
                     gulp_status(0)  # success!
             except KeyboardInterrupt:
@@ -273,7 +288,10 @@ def manage_futures(lastname, trigtime, futures):
 
         print(f'{len(done)} gulp future(s) completed')
 
-    return lastname, trigtime, futures
+    if triggered is False:
+        return old_lastname, None, futures
+    else:
+        return lastname, trigtime, futures
 
 
 def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
@@ -292,6 +310,7 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     # TODO: put these in json config file
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
+    triggered = False
     columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','snrs0','beams0','snrs1','beams1','snrs2','beams2','snrs3','beams3','snrs4','beams4','snrs5','beams5','snrs6','beams6','snrs7','beams7','snrs8','beams8','snrs9','beams9','trigger']
     
     # obtain this from etcd
@@ -429,6 +448,9 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
             # write all T1 cands
             outputted = cluster_heimdall.dump_cluster_results_heimdall(tab, outroot + f"T1_output{str(np.floor(time.time()).astype('int'))}.csv")
 
+            # did I trigger
+            triggered = True
+
     # write T2 clustered/filtered results
     if outroot is not None and len(tab2):
         tab2["trigger"] = col_trigger
@@ -468,7 +490,7 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
             dfc = pandas.concat(dfs)
             dfc.to_csv(ofl, index=False)
 
-    return lastname, trigtime
+    return lastname, trigtime, triggered
 
 
 def recvall(sock, n):

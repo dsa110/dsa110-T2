@@ -51,33 +51,15 @@ def parse_candsfile(candsfile):
     #    candsfile = '\n'.join([line for line in candsfile.split('\n') if line.count(' ') == 7])
     #    print(f'Received {ncands0} candidates, removed {ncands0-ncands} lines.')
     col_heimdall = ["snr", "if", "itime", "mjds", "ibox", "idm", "dm", "ibeam"]
-    col_T2old = [
-        "snr",
-        "if",
-        "itime",
-        "mjds",
-        "ibox",
-        "idm",
-        "dm",
-        "ibeam",
-        "cl",
-        "cntc",
-        "cntb",
-    ]
-    col_T2 = [
-        "snr",
-        "if",
-        "itime",
-        "mjds",
-        "ibox",
-        "idm",
-        "dm",
-        "ibeam",
-        "cl",
-        "cntc",
-        "cntb",
-        "trigger",
-    ]
+    col_T2old = ["snr", "if", "itime", "mjds", "ibox", "idm", "dm", "ibeam",
+                 "cl", "cntc", "cntb"]
+    col_T2nobeams = ["snr", "if", "itime", "mjds", "ibox",
+                     "idm", "dm", "ibeam", "cl", "cntc", "cntb", "trigger"]
+    col_T2 = ['snr','if','itime','mjds','ibox','idm','dm',
+              'ibeam','cl','cntc','cntb','snrs0','beams0','snrs1',
+              'beams1','snrs2','beams2','snrs3','beams3','snrs4',
+              'beams4','snrs5','beams5','snrs6','beams6','snrs7',
+              'beams7','snrs8','beams8','snrs9','beams9','trigger']
 
     # flag for heimdall file
     hdfile = False
@@ -107,7 +89,7 @@ def parse_candsfile(candsfile):
             try:
                 tab = ascii.read(
                     candsfile,
-                    names=col_T2old,
+                    names=col_T2nobeams,
                     guess=True,
                     fast_reader=False,
                     format="no_header",
@@ -115,8 +97,19 @@ def parse_candsfile(candsfile):
                 hdfile = False
                 logger.debug("Read with old style T2 columns")
             except InconsistentTableError:
-                logger.warning("Inconsistent table. Skipping...")
-                return ([], [], [])
+                try:
+                    tab = ascii.read(
+                        candsfile,
+                        names=col_T2old,
+                        guess=True,
+                        fast_reader=False,
+                        format="no_header",
+                    )
+                    hdfile = False
+                    logger.debug("Read with old style T2 columns")
+                except InconsistentTableError:
+                    logger.warning("Inconsistent table. Skipping...")
+                    return []
 
     tab["ibeam"] = tab["ibeam"].astype(int)
     tab["idm"] = tab["idm"].astype(int)
@@ -307,6 +300,7 @@ def filter_clustered(
         min_dm=50,
         min_snr=8,
         min_snr_wide=9,
+        min_snr_1arm=12,
         wide_ibox=17,
         max_ibox=33,
         min_cntb=None,
@@ -339,9 +333,14 @@ def filter_clustered(
             nsarr = ((df[[f'beams{i}' for i in range(nsnr)]].values > 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
             ewarr = ((df[[f'beams{i}' for i in range(nsnr)]].values <= 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
             twoarm = ewarr.any(axis=1) & nsarr.any(axis=1)
-#            print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
-            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox) * twoarm
-            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox) * twoarm
+            twoarm = (ewarr.any(axis=1) & nsarr.any(axis=1)) | (df['snr'].values > min_snr_1arm).any()
+            #print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
+
+            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
+            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
+            #print(f'good0: {good0}; good1: {good1}')
+            good0 *= twoarm
+            good1 *= twoarm
             good *= good0 + good1
         else:
             # print(f'min_snr={min_snr}, min_snrt={min_snrt}, min_dmt={min_dmt}, max_dmt={max_dmt}, tab={tab[["snr", "dm"]]}')
@@ -467,23 +466,26 @@ def dump_cluster_results_json(
         sel_dm = np.abs(tab_inj["DM"] - dm) < dm_close
         sel_beam = np.abs(tab_inj["Beam"] - ibeam) < beam_close
         sel_beam_2 = np.abs(tab_inj["Beam"]+256 - ibeam) < beam_close
-        print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}, beam2 {sel_beam_2.any()}")
+        #print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}, beam2 {sel_beam_2.any()}")
         sel = sel_t*sel_dm*sel_beam
         sel2 = sel_t*sel_dm*sel_beam_2
         if len(np.where(sel)[0]):
             isinjection = True
+            selt = sel
         if len(np.where(sel2)[0]):
             isinjection = True
+            selt = sel2
 
         if time.Time.now().mjd - mjd > 13:
             logger.warning("Event MJD is {mjd}, which is more than 13 days in the past. SNAP counter overflow?")
 
     if isinjection:
         basename = names.increment_name(mjd, lastname=lastname)
-        candname = f"{basename}_inj{tab_inj[sel]['FRBno'][0]}"
+        print(tab_inj[selt])
+        candname = f"{basename}_inj{tab_inj[selt][-1]['FRBno']}"
         print(f"Candidate identified as injection. Naming it {candname}")
-        if len(sel) > 1:
-            print(f"Found {len(sel)} injections coincident with this event. Using first.")
+        if len(selt) > 1:
+            print(f"Found {len(selt)} injections coincident with this event. Using first.")
         # if injection is found, skip the voltage trigger via etcd
     else:
         # if no injection file or no coincident injection
@@ -659,8 +661,8 @@ def dump_cluster_results_heimdall(
 ):
     """
     Takes tab from parse_candsfile and clsnr from get_peak,
-    output T2-clustered results with the same columns as heimdall.cand into a file outputfile.
-    The output is in pandas format with column names in the 1st row.
+    output T2-clustered results.
+    Both T1 (heimdall) and T2 outputs are named "*.cand" and can be parsed by parse_candsfile().
     min_snr_t2out is a min snr on candidates to write.
     max_ncl is number of rows to write.
     """

@@ -300,7 +300,7 @@ def filter_clustered(
         min_dm=50,
         min_snr=8,
         min_snr_wide=9,
-        min_snr_1arm=10,
+        min_snr_1arm=12,
         wide_ibox=17,
         max_ibox=33,
         min_cntb=None,

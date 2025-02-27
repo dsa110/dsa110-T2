@@ -300,7 +300,7 @@ def filter_clustered(
         min_dm=50,
         min_snr=8,
         min_snr_wide=9,
-        min_snr_1arm=12,
+        min_snr_1arm=10,
         wide_ibox=17,
         max_ibox=33,
         min_cntb=None,
@@ -507,7 +507,7 @@ def dump_cluster_results_json(
     (
         output_dict[candname]["ra"],
         output_dict[candname]["dec"],
-    ) = get_radec(beamnum=127)  # quick and dirty
+    ) = get_radec(output_dict)
 
     if gulp is not None:
         output_dict[candname]["gulp"] = gulp
@@ -606,16 +606,34 @@ def dump_cluster_results_json(
     return None, lastname, None
 
 
-def get_radec(mjd=None, beamnum=None):
-    """Use time, beam number, and and antenna elevation to get RA, Dec of beam."""
+def get_radec(output_dict=None, mjd=None, beamnum=None, nsnr=5):
+    """Estimate RA and Dec.
+    Early method is to get 1-arm localization from time, beam number, and and antenna elevation to get RA, Dec of beam.
+    Newer method is to get 2-arm localization from beam number in both arms. Uses the canddict info.
+    """
 
-    if mjd is not None:
+    if output_dict is not None:
+        canddict = output_dict[list(output_dict)[0]]  # grab only cand in dict
+        tt = time.Time(canddict['mjds'], format='mjd')
+        beamnum_ew = None
+        beamnum_ns = None
+        for i in range(nsnr):
+            if canddict[f'snrs{i}'] > 0:
+                beam = canddict[f'beams{i}']
+            if beam < 256 and beamnum_ew is None:
+                beamnum_ew = beam
+            elif beam >= 256 and beamnum_ns is None:
+                beamnum_ns = beam
+            elif beamnum_ns is not None and beamnum_ew is not None:
+                break
+        beamnum = beamnum_ew
+    elif mjd is not None:
         print("Using time to get ra,dec")
         tt = time.Time(mjd, format="mjd")
     else:
         tt = None
 
-    ra, dec = coordinates.get_pointing(ibeam=beamnum, obstime=tt)    
+    ra, dec = coordinates.get_pointing(ibeam=beamnum, jbeam=beamnum_ns, obstime=tt)
     
     return ra.value, dec.value
 

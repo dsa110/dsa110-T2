@@ -47,7 +47,10 @@ for kk in [17,18]:
         ind = int(ii%5)#np.where(params[:,-1]==float(frbno))[0]
         DM, SNR, Width_fwhm, spec_ind = params[ind][0],params[ind][1],params[ind][2],params[ind][3]
         print("pushing injection to command to etcd")
-        slack_client.chat_postMessage(channel='candidates', text=f'Sending injection to beam {subbeam} with DM={DM} and SNR={SNR}')
+        try:
+            slack_client.chat_postMessage(channel='candidates', text=f'Sending injection to beam {subbeam} with DM={DM} and SNR={SNR}')
+        except:
+            print("Could not send to slack")
         d.put_dict('/cmd/corr/%d'%kk,{'cmd':'inject','val':'%d-%s-%f-'%(subbeam,fn,scfac)})
         d.put_dict('/cmd/corr/%d'%(kk+2),{'cmd':'inject','val':'%d-%s-%f-'%(subbeam,fn,scfac*35./47.)})
         imjd = Time.now().mjd

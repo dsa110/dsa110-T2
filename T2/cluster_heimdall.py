@@ -300,7 +300,7 @@ def filter_clustered(
         min_dm=50,
         min_snr=8,
         min_snr_wide=9,
-        min_snr_1arm=12,
+        min_snr_1arm=10,
         wide_ibox=17,
         max_ibox=33,
         min_cntb=None,
@@ -507,7 +507,7 @@ def dump_cluster_results_json(
     (
         output_dict[candname]["ra"],
         output_dict[candname]["dec"],
-    ) = get_radec(output_dict, beamnum=127)  # quick and dirty
+    ) = get_radec(output_dict)
 
     if gulp is not None:
         output_dict[candname]["gulp"] = gulp
@@ -613,8 +613,8 @@ def get_radec(output_dict=None, mjd=None, beamnum=None, nsnr=5):
     """
 
     if output_dict is not None:
-        candname, canddict = output_dict.popitem()
-        tt = canddict['mjds']
+        canddict = output_dict[list(output_dict)[0]]  # grab only cand in dict
+        tt = time.Time(canddict['mjds'], format='mjd')
         beamnum_ew = None
         beamnum_ns = None
         for i in range(nsnr):

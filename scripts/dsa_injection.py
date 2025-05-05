@@ -36,28 +36,32 @@ flist = ['/home/ubuntu/data/burst_0.inject','/home/ubuntu/data/burst_1.inject','
 nfrb = len(flist)
 
 for kk in [17,18]:
-    for ii in np.arange(128):
+    for ii in np.arange(128)+20:
             
         f = open(fnout,'a')
         subbeam = ii
         beam = 128*(kk-17)+subbeam
         print("Injecting into beam %d"%beam)
-        fn = flist[int(ii%5)]
+        fn = flist[0]
         frbno = fn.split('_')[-1].split('.')[0]
-        ind = int(ii%5)#np.where(params[:,-1]==float(frbno))[0]
+        ind = 0#int(ii%2)#np.where(params[:,-1]==float(frbno))[0]
+
+        #mysnr = 0.08#0.2-np.random.uniform()*0.14
+        mysnr = 0.2
+        
         DM, SNR, Width_fwhm, spec_ind = params[ind][0],params[ind][1],params[ind][2],params[ind][3]
         print("pushing injection to command to etcd")
         try:
-            slack_client.chat_postMessage(channel='candidates', text=f'Sending injection to beam {subbeam} with DM={DM} and SNR={SNR}')
+            slack_client.chat_postMessage(channel='candidates', text=f'Sending injection to beam {subbeam} with DM={DM} and SNR={21.*mysnr/0.2}')
         except:
             print("Could not send to slack")
-        d.put_dict('/cmd/corr/%d'%kk,{'cmd':'inject','val':'%d-%s-%f-'%(subbeam,fn,scfac)})
-        d.put_dict('/cmd/corr/%d'%(kk+2),{'cmd':'inject','val':'%d-%s-%f-'%(subbeam,fn,scfac*35./47.)})
+        d.put_dict('/cmd/corr/%d'%kk,{'cmd':'inject','val':'%d-%s-%f-'%(subbeam,fn,mysnr)})
+        #d.put_dict('/cmd/corr/%d'%(kk+2),{'cmd':'inject','val':'%d-%s-%f-'%(subbeam,fn,mysnr*35./47./1.4)})
         imjd = Time.now().mjd
         print("writing parameters to disk")
         f.write(fmt_out % (imjd, beam, DM, SNR, Width_fwhm, spec_ind, frbno))
         f.close()
         print("Waiting to inject...")            
-        time.sleep(1600)
+        time.sleep(2000)
 
 f.close()

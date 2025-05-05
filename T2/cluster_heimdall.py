@@ -298,9 +298,9 @@ def get_peak(tab, nsnr=NSNR):
 def filter_clustered(
         tab,
         min_dm=50,
-        min_snr=8,
+        min_snr=7.5,
         min_snr_wide=9,
-        min_snr_1arm=10,
+        min_snr_1arm=13,
         wide_ibox=17,
         max_ibox=33,
         min_cntb=None,
@@ -332,16 +332,17 @@ def filter_clustered(
             df = tab.to_pandas()
             nsarr = ((df[[f'beams{i}' for i in range(nsnr)]].values > 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
             ewarr = ((df[[f'beams{i}' for i in range(nsnr)]].values <= 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
-            twoarm = ewarr.any(axis=1) & nsarr.any(axis=1)
+#            twoarm = ewarr.any(axis=1) & nsarr.any(axis=1)
             twoarm = (ewarr.any(axis=1) & nsarr.any(axis=1)) | (df['snr'].values > min_snr_1arm).any()
             #print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
 
             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
             good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
             #print(f'good0: {good0}; good1: {good1}')
-            good0 *= twoarm
-            good1 *= twoarm
-            good *= good0 + good1
+#            good0 *= twoarm
+#            good1 *= twoarm
+            good *= good0*twoarm + good1*twoarm
+            print(good0, good1, twoarm)
         else:
             # print(f'min_snr={min_snr}, min_snrt={min_snrt}, min_dmt={min_dmt}, max_dmt={max_dmt}, tab={tab[["snr", "dm"]]}')
             good0 = (tab["snr"] > min_snr) * (tab["dm"] > max_dmt)
@@ -354,10 +355,10 @@ def filter_clustered(
             good *= good0 + good1 + good2
             # print('good0, good1, good2, good:')
             # print(good0, good1, good2, good)
+
     if min_dm is not None:
         good *= tab["dm"] > min_dm
     if max_ibox is not None:
-#        print(f"using max_ibox {max_ibox}")
         good *= tab["ibox"] < max_ibox
     if min_cntb is not None:
         good *= tab["cntb"] > min_cntb

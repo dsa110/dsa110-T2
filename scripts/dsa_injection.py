@@ -56,7 +56,7 @@ for kk in [17,18]:
         except:
             print("Could not send to slack")
         d.put_dict('/cmd/corr/%d'%kk,{'cmd':'inject','val':'%d-%s-%f-'%(subbeam,fn,mysnr)})
-        #d.put_dict('/cmd/corr/%d'%(kk+2),{'cmd':'inject','val':'%d-%s-%f-'%(subbeam,fn,mysnr*35./47./1.4)})
+        d.put_dict('/cmd/corr/%d'%(kk+2),{'cmd':'inject','val':'%d-%s-%f-'%(subbeam,fn,mysnr*35./47./1.4)})
         imjd = Time.now().mjd
         print("writing parameters to disk")
         f.write(fmt_out % (imjd, beam, DM, SNR, Width_fwhm, spec_ind, frbno))

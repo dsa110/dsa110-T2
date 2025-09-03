@@ -134,6 +134,9 @@ def parse_candsfile(candsfile):
     # how to use ibeam?
 
     #    return tab, data, snrs
+
+    #return tab[(tab["ibeam"] == 32) | (tab["ibeam"] == 288)]
+    
     return tab
 
 def flag_beams(tab,stat=5e5):
@@ -300,7 +303,7 @@ def filter_clustered(
         min_dm=50,
         min_snr=7.5,
         min_snr_wide=9,
-        min_snr_1arm=13,
+        min_snr_1arm=9.0,
         wide_ibox=17,
         max_ibox=33,
         min_cntb=None,

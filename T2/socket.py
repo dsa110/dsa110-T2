@@ -337,7 +337,7 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
         use_gal_dm = 1
 
     if use_gal_dm == 0:
-        min_dm = 100.
+        min_dm = 50.
     else:
         # Take min DM to be either 0.75 times MW DM or 50., whatever
         # is higher.
@@ -475,11 +475,11 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
             df0 = pandas.read_csv(output_file, delimiter=' ', names=columns, on_bad_lines='warn')
 
             dfs = [df0]
-            if os.path.exists(fl1):  # accumulate to yesterday's for rolling 2-day file
+            if os.path.exists(fl1) and os.path.getsize(fl1):  # accumulate to yesterday's for rolling 2-day file
                 df1 = pandas.read_csv(fl1, on_bad_lines='warn')
                 dfs.append(df1)
 
-            if os.path.exists(fl2):  # accumulate to today's for 1-day file
+            if os.path.exists(fl2) and os.path.getsize(fl2):  # accumulate to today's for 1-day file
                 df2 = pandas.read_csv(fl2, on_bad_lines='warn')
                 dfs.append(df2)
                 dfc2 = pandas.concat( (df0, df2) )

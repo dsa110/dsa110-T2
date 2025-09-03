@@ -36,7 +36,7 @@ flist = ['/home/ubuntu/data/burst_0.inject','/home/ubuntu/data/burst_1.inject','
 nfrb = len(flist)
 
 for kk in [17,18]:
-    for ii in np.arange(128)+20:
+    for ii in np.arange(128):
             
         f = open(fnout,'a')
         subbeam = ii
@@ -47,7 +47,7 @@ for kk in [17,18]:
         ind = 0#int(ii%2)#np.where(params[:,-1]==float(frbno))[0]
 
         #mysnr = 0.08#0.2-np.random.uniform()*0.14
-        mysnr = 0.2
+        mysnr = 0.3
         
         DM, SNR, Width_fwhm, spec_ind = params[ind][0],params[ind][1],params[ind][2],params[ind][3]
         print("pushing injection to command to etcd")

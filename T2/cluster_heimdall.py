@@ -513,8 +513,7 @@ def dump_cluster_results_json(
     if gulp is not None:
         output_dict[candname]["gulp"] = gulp
 
-    if isinjection:  # add in any case?
-        output_dict[candname]['injected'] = isinjection
+    output_dict[candname]['injected'] = isinjection
 
     nbeams_condition = False
     if nbeams > max_nbeams:
@@ -555,7 +554,7 @@ def dump_cluster_results_json(
                     )
                     json.dump(output_dict, f, ensure_ascii=False, indent=4)   # could replace this with DSAEvent method
 
-                if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
+                if trigger and time.Time.now().mjd - mjd < 13:
                     send_trigger(output_dict=output_dict)
                     trigtime = time.Time.now()
                 else:
@@ -586,7 +585,7 @@ def dump_cluster_results_json(
                 )
                 json.dump(output_dict, f, ensure_ascii=False, indent=4)
 
-            if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
+            if trigger and time.Time.now().mjd - mjd < 13:
                 send_trigger(output_dict=output_dict)
                 trigtime = time.Time.now()
             else:
@@ -652,27 +651,31 @@ def send_trigger(output_dict=None, outputfile=None):
 
     candname = list(output_dict)[0]
     val = output_dict.get(candname)
-    print(candname, val)
-    print(
-        f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
-    )
-    logger.info(
-        f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
-    )
+    isinjection = output_dict[candname]['injected']
 
-    with open(f"/home/ubuntu/data/T2test/{candname}.json", "w") as f:  # encoding='utf-8'
+    if not isinjection:
         print(
-            f"Writing dump dict"
+            f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
         )
-        json.dump({"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'}, f, ensure_ascii=False, indent=4)
+        logger.info(
+            f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
+        )
 
-    ds.put_dict(
-        "/cmd/corr/0",
-        {"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'},
-    )  # triggers voltage dump in corr.py
-    ds.put_dict(
-        "/mon/corr/1/trigger", output_dict
-    )  # tells look_after_dumps.py to manage data
+        with open(f"/home/ubuntu/data/T2test/{candname}.json", "w") as f:  # encoding='utf-8'
+            print(
+                f"Writing dump dict"
+            )
+            json.dump({"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'}, f, ensure_ascii=False, indent=4)
+
+        ds.put_dict(
+            "/cmd/corr/0",
+            {"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'},
+        )  # triggers voltage dump in corr.py
+        ds.put_dict(
+            "/mon/corr/1/trigger", output_dict
+        )  # tells look_after_dumps.py to manage data
+    else:
+        print(f"Candidate {candname} was detected as an injection. Not triggering voltage recording.")
 
 
 def dump_cluster_results_heimdall(

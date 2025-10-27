@@ -31,6 +31,15 @@ except:
 
 from event import names  # TODO: add event to get DSAEvent class
 
+
+# set up slack client
+slack_file = '{0}/.config/slack_api'.format(os.path.expanduser("~"))
+if not os.path.exists(slack_file):
+    raise RuntimeError("Could not find file with slack api token at {0}".format(slack_file))
+with open(slack_file) as sf_handler:
+    slack_token = sf_handler.read()
+    slack_client = slack.WebClient(token=slack_token)
+
 # half second at heimdall time resolution (after march 18)
 offset = 1907
 downsample = 4
@@ -676,6 +685,7 @@ def send_trigger(output_dict=None, outputfile=None):
         )  # tells look_after_dumps.py to manage data
     else:
         print(f"Candidate {candname} was detected as an injection. Not triggering voltage recording.")
+        slack_client.chat_postMessage(channel='candidates', text=f'Injection detected as {candname} with DM={val["dm"]} and SNR={val["snr"]}.')
 
 
 def dump_cluster_results_heimdall(

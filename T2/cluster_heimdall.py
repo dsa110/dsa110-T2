@@ -30,6 +30,16 @@ except:
     logger = logging.getLogger()
 
 from event import names  # TODO: add event to get DSAEvent class
+import slack_sdk as slack
+
+
+# set up slack client
+slack_file = '{0}/.config/slack_api'.format(os.path.expanduser("~"))
+if not os.path.exists(slack_file):
+    raise RuntimeError("Could not find file with slack api token at {0}".format(slack_file))
+with open(slack_file) as sf_handler:
+    slack_token = sf_handler.read()
+    slack_client = slack.WebClient(token=slack_token)
 
 # half second at heimdall time resolution (after march 18)
 offset = 1907
@@ -134,9 +144,6 @@ def parse_candsfile(candsfile):
     # how to use ibeam?
 
     #    return tab, data, snrs
-
-    #return tab[(tab["ibeam"] == 32) | (tab["ibeam"] == 288)]
-    
     return tab
 
 def flag_beams(tab,stat=5e5):
@@ -171,7 +178,7 @@ def cluster_data(
     tt = tab[selectcols]
 #    print(tt[:10])
     data = np.lib.recfunctions.structured_to_unstructured(
-        tab[selectcols].as_array(), dtype=np.int
+        tab[selectcols].as_array(), dtype=int
     )  # ok for single dtype (int)
 #    np.savez("test.npz",data=data)
     
@@ -303,7 +310,7 @@ def filter_clustered(
         min_dm=50,
         min_snr=7.5,
         min_snr_wide=9,
-        min_snr_1arm=9.0,
+        min_snr_1arm=10,
         wide_ibox=17,
         max_ibox=33,
         min_cntb=None,
@@ -335,19 +342,12 @@ def filter_clustered(
             df = tab.to_pandas()
             nsarr = ((df[[f'beams{i}' for i in range(nsnr)]].values > 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
             ewarr = ((df[[f'beams{i}' for i in range(nsnr)]].values <= 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
-#            twoarm = ewarr.any(axis=1) & nsarr.any(axis=1)
             twoarm = (ewarr.any(axis=1) & nsarr.any(axis=1)) | (df['snr'].values > min_snr_1arm).any()
-            #print(f'nsarr: {nsarr}, ewarr: {ewarr}, twoarm: {twoarm}')
 
             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
             good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
-            #print(f'good0: {good0}; good1: {good1}')
-#            good0 *= twoarm
-#            good1 *= twoarm
             good *= good0*twoarm + good1*twoarm
-            print(good0, good1, twoarm)
         else:
-            # print(f'min_snr={min_snr}, min_snrt={min_snrt}, min_dmt={min_dmt}, max_dmt={max_dmt}, tab={tab[["snr", "dm"]]}')
             good0 = (tab["snr"] > min_snr) * (tab["dm"] > max_dmt)
             good1 = (tab["snr"] > min_snr) * (tab["dm"] < min_dmt)
             good2 = (
@@ -356,8 +356,7 @@ def filter_clustered(
                 * (tab["dm"] < max_dmt)
             )
             good *= good0 + good1 + good2
-            # print('good0, good1, good2, good:')
-            # print(good0, good1, good2, good)
+            
 
     if min_dm is not None:
         good *= tab["dm"] > min_dm
@@ -485,7 +484,6 @@ def dump_cluster_results_json(
 
     if isinjection:
         basename = names.increment_name(mjd, lastname=lastname)
-        print(tab_inj[selt])
         candname = f"{basename}_inj{tab_inj[selt][-1]['FRBno']}"
         print(f"Candidate identified as injection. Naming it {candname}")
         if len(selt) > 1:
@@ -516,8 +514,7 @@ def dump_cluster_results_json(
     if gulp is not None:
         output_dict[candname]["gulp"] = gulp
 
-    if isinjection:  # add in any case?
-        output_dict[candname]['injected'] = isinjection
+    output_dict[candname]['injected'] = isinjection
 
     nbeams_condition = False
     if nbeams > max_nbeams:
@@ -530,7 +527,6 @@ def dump_cluster_results_json(
 #            nbeams_condition = False
 
     if len(tab) and nbeams_condition is False:
-        print(red_tab)
 
         # TODO: create DSAEvent here and use it instead of output_dict
 
@@ -558,7 +554,7 @@ def dump_cluster_results_json(
                     )
                     json.dump(output_dict, f, ensure_ascii=False, indent=4)   # could replace this with DSAEvent method
 
-                if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
+                if trigger and time.Time.now().mjd - mjd < 13:
                     send_trigger(output_dict=output_dict)
                     trigtime = time.Time.now()
                 else:
@@ -589,7 +585,7 @@ def dump_cluster_results_json(
                 )
                 json.dump(output_dict, f, ensure_ascii=False, indent=4)
 
-            if trigger and time.Time.now().mjd - mjd < 13:  #  and not isinjection ?
+            if trigger and time.Time.now().mjd - mjd < 13:
                 send_trigger(output_dict=output_dict)
                 trigtime = time.Time.now()
             else:
@@ -655,27 +651,32 @@ def send_trigger(output_dict=None, outputfile=None):
 
     candname = list(output_dict)[0]
     val = output_dict.get(candname)
-    print(candname, val)
-    print(
-        f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
-    )
-    logger.info(
-        f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
-    )
+    isinjection = output_dict[candname]['injected']
 
-    with open(f"/home/ubuntu/data/T2test/{candname}.json", "w") as f:  # encoding='utf-8'
+    if not isinjection:
         print(
-            f"Writing dump dict"
+            f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
         )
-        json.dump({"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'}, f, ensure_ascii=False, indent=4)
+        logger.info(
+            f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
+        )
 
-    ds.put_dict(
-        "/cmd/corr/0",
-        {"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'},
-    )  # triggers voltage dump in corr.py
-    ds.put_dict(
-        "/mon/corr/1/trigger", output_dict
-    )  # tells look_after_dumps.py to manage data
+        with open(f"/home/ubuntu/data/T2test/{candname}.json", "w") as f:  # encoding='utf-8'
+            print(
+                f"Writing dump dict"
+            )
+            json.dump({"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'}, f, ensure_ascii=False, indent=4)
+
+        ds.put_dict(
+            "/cmd/corr/0",
+            {"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'},
+        )  # triggers voltage dump in corr.py
+        ds.put_dict(
+            "/mon/corr/1/trigger", output_dict
+        )  # tells look_after_dumps.py to manage data
+    else:
+        print(f"Candidate {candname} was detected as an injection. Not triggering voltage recording.")
+        slack_client.chat_postMessage(channel='candidates', text=f'Injection detected as {candname} with DM={val["dm"]} and SNR={val["snr"]}.')
 
 
 def dump_cluster_results_heimdall(

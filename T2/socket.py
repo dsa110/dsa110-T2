@@ -40,6 +40,10 @@ except (KeyError, ConnectionFailedError):
     my_cnf = cnf.Conf(use_etcd=False)
     t2_cnf = my_cnf.get("t2")
 
+#Auditor import
+from T2.audit import Auditor  
+INJECTION_FILE = "/home/ubuntu/data/injections/injection_list.txt"  
+
 from collections import deque
 
 nbeams_queue = deque(maxlen=10)
@@ -53,6 +57,11 @@ def parse_socket(
     plot_dir=None,
     trigger=False,
     source_catalog=None,
+    #audit injection parameters
+    audit_injections=False,
+    audit_dump_json=False,
+    audit_dir="/operations/T2/injection_audit_results/",
+
 ):
     """
     Takes standard MBHeimdall giants socket output and returns full table, classifier inputs and snr tables.
@@ -62,6 +71,10 @@ def parse_socket(
     ports can be list of integers.
     selectcol: list of str.  Select columns for clustering.
     source_catalog: path to file containing source catalog for source rejection. default None
+    audit_injections: bool, whether to enable injection auditing (default False)
+    audit_dump_json: bool, whether to dump per-injection JSON files (default False)
+    audit_dir: str, directory to store audit results (default "/operations/T2/injection_audit_results/")
+
     """
 
     # startup time
@@ -93,6 +106,60 @@ def parse_socket(
         model = None
         coords = None
         snrs = None
+
+    # Audit Injection Setup
+    audit_enabled = bool(audit_injections)
+    auditor = None
+    injection_list_csv = None  # canonical injection list file path
+
+    if audit_enabled:
+        # Window parameters: try etcd -> t2_cnf -> hard defaults
+        try:
+            time_window_s = int(ds.get_dict('/cnf/t2').get('audit_time_window_s', 300))
+        except Exception:
+            time_window_s = int(t2_cnf.get('audit_time_window_s', 300))
+
+        try:
+            dm_window = float(ds.get_dict('/cnf/t2').get('audit_dm_window', 20.0))
+        except Exception:
+            dm_window = float(t2_cnf.get('audit_dm_window', 20.0))
+
+        try:
+            beam_window = int(ds.get_dict('/cnf/t2').get('audit_beam_window', 2))
+        except Exception:
+            beam_window = int(t2_cnf.get('audit_beam_window', 2))
+
+        # Ensure audit_dir exists
+        try:
+            os.makedirs(audit_dir, exist_ok=True)
+        except Exception as _e:
+            logger.warning(f"Could not create audit_dir {audit_dir}: {_e}")
+
+        # Canonical injection list lives inside audit_dir
+        injection_list_csv = os.path.join(audit_dir, "injections.csv")
+
+        # Initialize the file if missing, with a commented header
+        if not os.path.exists(injection_list_csv):
+            try:
+                with open(injection_list_csv, "w") as f:
+                    f.write("# MJD   Beam   DM    SNR   Width_fwhm   spec_ind   FRBno\n")
+            except Exception as _e:
+                logger.warning(f"Could not initialize injection list {injection_list_csv}: {_e}")
+
+        # Instantiate Auditor with chosen persistence mode
+        from T2.audit import Auditor
+        auditor = Auditor(
+            audit_dir=audit_dir,
+            time_window_s=time_window_s,
+            dm_window=dm_window,
+            beam_window=beam_window,
+            persist_json=bool(audit_dump_json),
+        )
+        try:
+            auditor.ingest_legacy_injections(INJECTION_FILE)
+        except Exception as e:
+            logger.warning(f"AUDIT init: legacy ingestion/mirror failed: {e}")
+    # end of audit setup
 
     logger.info(f"Reading from {len(ports)} sockets...")
     print(f"Reading from {len(ports)} sockets...")
@@ -232,6 +299,21 @@ def parse_socket(
 
 
         tab = cluster_heimdall.parse_candsfile(candsfile)
+        #injection auditor changes...
+        if audit_enabled and auditor is not None:
+            try:
+                # Early-stage audit update (G1/G2)
+                auditor.update_from_tab(
+                    host=host,
+                    gulp=gulp,
+                    tab=tab,
+                    nbeams_queue_snapshot=list(nbeams_queue),
+                    nbeams_queue_sum=sum(nbeams_queue) if len(nbeams_queue) else 0,
+                    runtime_thresholds={},  # thresholds filled at finalize stage
+                    prev_trig_time=prev_trig_time,
+                )
+            except Exception as e:
+                logger.warning(f"[AUDIT] update_from_tab failed: {e}")
 
         # to handle too many futures
         if len(futures)>1:
@@ -242,13 +324,12 @@ def parse_socket(
             future = pool.submit(cluster_and_plot, tab, gulp=gulp, selectcols=selectcols,
                                  outroot=outroot, plot_dir=plot_dir, trigger=trigger, lastname=lastname,
                                  cat=source_catalog, beam_model=model, coords=coords, snrs=snrs,
-                                 prev_trig_time=prev_trig_time)
+                                 prev_trig_time=prev_trig_time, auditor=auditor, audit_enabled=audit_enabled)
             globct += 1
             futures[key] = future
             print(f'Processing {len(futures)} gulps')
 
             try:
-                
                 lastname, trigtime, futures = manage_futures(lastname, trigtime, futures)  # returns latest result from iteration over futures
             except:
                 print('Caught error in manage_futures. Closing sockets.')
@@ -297,7 +378,7 @@ def manage_futures(old_lastname, old_trigtime, futures):
 def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
                      outroot=None, plot_dir=None, trigger=False, lastname=None,
                      max_ncl=None, cat=None, beam_model=None, coords=None,
-                     snrs=None, prev_trig_time=None):
+                     snrs=None, prev_trig_time=None, auditor=None, audit_enabled=False):
     """
     Run clustering and plotting on read data.
     Can optionally save clusters as heimdall candidate table before filtering and json version of buffer trigger.
@@ -311,6 +392,9 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
     triggered = False
+    #injection auditing related
+    output_file = ""
+    candname_for_audit = None
     columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','snrs0','beams0','snrs1','beams1','snrs2','beams2','snrs3','beams3','snrs4','beams4','snrs5','beams5','snrs6','beams6','snrs7','beams7','snrs8','beams8','snrs9','beams9','trigger']
     
     # obtain this from etcd
@@ -337,7 +421,7 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
         use_gal_dm = 1
 
     if use_gal_dm == 0:
-        min_dm = 50.
+        min_dm = 20.
     else:
         # Take min DM to be either 0.75 times MW DM or 50., whatever
         # is higher.
@@ -355,6 +439,33 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     max_cntb = t2_cnf["max_ctb"]
     #target_params = (50.0, 100.0, 20.0)  # Galactic bursts
     target_params = None
+
+    # --- Required for injection auditing ---
+    #Vishnu: These two variables (min_snr_1arm, max_nbeams) are currently hardcoded but I think they eventually belong to t2_cnf or etcd. Adding this assuming it will be done later.
+    try:
+        min_snr_1arm = ds.get_dict('/cnf/t2').get("min_snr_1arm", 10)
+    except Exception:
+        min_snr_1arm = t2_cnf.get("min_snr_1arm", 10)
+
+    try:
+        max_nbeams_allowed = int(ds.get_dict('/cnf/t2').get("max_nbeams", 40))
+    except Exception:
+        max_nbeams_allowed = int(t2_cnf.get("max_nbeams", 40))
+
+    
+    thresholds_snapshot = {
+        "min_snr": float(min_snr),
+        "min_snr_wide": float(min_snr_wide),
+        "min_snr_1arm": float(min_snr_1arm),
+        "wide_ibox": int(wide_ibox),
+        "max_ibox": int(max_ibox),
+        "max_cntb": int(max_cntb),
+        "max_cntb0": int(max_cntb0),
+        "max_ncl": int(max_ncl) if max_ncl is not None else "",
+        "min_dm": float(min_dm),
+        "max_nbeams": int(max_nbeams_allowed),
+        "min_timedelt": float(60.0),  # matches local default below; but should really belong to etcd/t2_cnf
+    }
 
     #ind = np.where(tab["ibox"]<32)[0]
     #tab = tab[ind]
@@ -374,21 +485,20 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     #print(f"cluster_and_plot: have {len(tab)} inputs ABOVE {snrthresh}")
     #logger.info(f"cluster_and_plot: have {len(tab)} inputs ABOVE {snrthresh}")
 
+    tab_pre_flag = tab.copy()
     # flag beams
-    mytab = cluster_heimdall.flag_beams(tab)
-    tab = mytab
+    tab_after_flag = cluster_heimdall.flag_beams(tab)
     
     # cluster
     cluster_heimdall.cluster_data(
-        tab,
+        tab_after_flag,
         #metric="euclidean",
         allow_single_cluster=True,
         return_clusterer=False,
     )
-    tab2 = cluster_heimdall.get_peak(tab)
+    tab2 = cluster_heimdall.get_peak(tab_after_flag)
     nbeams_gulp = cluster_heimdall.get_nbeams(tab2, threshold=min_snr)
     nbeams_queue.append(nbeams_gulp)
-    print(f"nbeams_queue: {nbeams_queue}")
 
     # Liam edit to preserve real FRBs during RFI storm:
     # if nbeam > 100 and frac_wide < 0.8: do not discard
@@ -440,6 +550,8 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
             prev_trig_time=prev_trig_time,
             min_timedelt=min_timedelt
         )
+        #Updating candname for injection audits.
+        candname_for_audit = lastname
         if tab4 is not None and trigger:
             col_trigger = np.where(
                 tab4 == tab2, lastname, 0
@@ -475,11 +587,11 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
             df0 = pandas.read_csv(output_file, delimiter=' ', names=columns, on_bad_lines='warn')
 
             dfs = [df0]
-            if os.path.exists(fl1) and os.path.getsize(fl1):  # accumulate to yesterday's for rolling 2-day file
+            if os.path.exists(fl1):  # accumulate to yesterday's for rolling 2-day file
                 df1 = pandas.read_csv(fl1, on_bad_lines='warn')
                 dfs.append(df1)
 
-            if os.path.exists(fl2) and os.path.getsize(fl2):  # accumulate to today's for 1-day file
+            if os.path.exists(fl2):  # accumulate to today's for 1-day file
                 df2 = pandas.read_csv(fl2, on_bad_lines='warn')
                 dfs.append(df2)
                 dfc2 = pandas.concat( (df0, df2) )
@@ -489,6 +601,45 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
 
             dfc = pandas.concat(dfs)
             dfc.to_csv(ofl, index=False)
+    
+
+    # --- Finalize audit (stamps G3..G7) ---
+    if audit_enabled and auditor is not None:
+        try:
+            #Calculate cooldown wait time
+            if prev_trig_time is not None:
+                try:
+                    cooldown_wait_s = float((Time.now() - prev_trig_time).to_value('sec'))
+                except Exception:
+                    cooldown_wait_s = None
+            else:
+                cooldown_wait_s = None
+
+            nbeams_this_gulp = int(nbeams_gulp)
+            thresholds_for_finalize = dict(thresholds_snapshot)
+            thresholds_for_finalize["t2_output_file"] = output_file if outroot is not None else ""
+            thresholds_for_finalize["exception"] = ""
+
+            auditor.finalize_from_cluster_result(
+                host="T2",                              
+                gulp=int(gulp) if gulp is not None else -1,
+                tab_pre_filter=tab_pre_flag,
+                tab_after_beam_flag=tab_after_flag,
+                tab_peak=tab2,
+                tab_after_filters=tab3,
+                lastname=lastname,                     
+                trigtime=trigtime,
+                triggered=bool(triggered),
+                nbeams_this_gulp=nbeams_this_gulp,
+                nbeams_queue_snapshot=list(nbeams_queue),
+                nbeams_queue_sum=sum(nbeams_queue) if len(nbeams_queue) else 0,
+                thresholds=thresholds_for_finalize,
+                cooldown_wait_s=cooldown_wait_s,
+                candname_for_injection=(candname_for_audit if 'candname_for_audit' in locals() else None),
+            )
+        except Exception as e:
+            logger.warning(f"[AUDIT] finalize_from_cluster_result failed: {e}")
+
 
     return lastname, trigtime, triggered
 

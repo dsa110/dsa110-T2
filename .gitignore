@@ -4,6 +4,11 @@ __pycache__
 */__pycache__
 tests/*.cand
 tests/*.json
+tests/*.pdf
+tests/*.csv
+tests/tmp.dat
+tests/tmp_audit_artifacts/
 *.json
 RELEASE-VERSION
 dsa110_T2.egg-info
+

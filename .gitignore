@@ -7,7 +7,7 @@ tests/*.json
 tests/*.pdf
 tests/*.csv
 tests/tmp.dat
-tests/tmp_audit_artifacts/
+tests/audit_results/
 *.json
 RELEASE-VERSION
 dsa110_T2.egg-info

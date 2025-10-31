@@ -42,7 +42,7 @@ except (KeyError, ConnectionFailedError):
 
 #Auditor import
 from T2.audit import Auditor  
-INJECTION_FILE = "/home/ubuntu/data/injections/injection_list.txt"  
+INJECTION_FILE = "/operations/T2/injection_audit_results/injections_for_audit.txt"  
 
 from collections import deque
 
@@ -155,10 +155,15 @@ def parse_socket(
             beam_window=beam_window,
             persist_json=bool(audit_dump_json),
         )
-        try:
-            auditor.ingest_legacy_injections(INJECTION_FILE)
-        except Exception as e:
-            logger.warning(f"AUDIT init: legacy ingestion/mirror failed: {e}")
+        # try:
+        #     auditor.ingest_legacy_injections(INJECTION_FILE)
+        # except Exception as e:
+        #     logger.warning(f"AUDIT init: legacy ingestion/mirror failed: {e}")
+
+        auditor.attach_injection_source(INJECTION_FILE)
+        added0 = auditor.refresh_from_source(force=True)
+        if added0:
+            print(f"[AUDIT] initial load: applied {added0} injections from {INJECTION_FILE}")
     # end of audit setup
 
     logger.info(f"Reading from {len(ports)} sockets...")
@@ -299,6 +304,13 @@ def parse_socket(
 
 
         tab = cluster_heimdall.parse_candsfile(candsfile)
+        try:
+            added = auditor.refresh_from_source(force=False)
+            if added:
+                print(f"[AUDIT] reload: applied {added} injection rows from {INJECTION_FILE}")
+        except Exception as e:
+            logger.warning(f"[AUDIT] refresh_from_source failed: {e}")
+
         #injection auditor changes...
         if audit_enabled and auditor is not None:
             try:

@@ -331,6 +331,8 @@ class Auditor:
     ):
         self.audit_dir = Path(audit_dir) if audit_dir else DEFAULT_AUDIT_DIR
         self.audit_dir.mkdir(parents=True, exist_ok=True)
+        self._source_file_path: Optional[str] = None
+        self._source_mtime: Optional[float] = None
 
         self.persist_json = bool(persist_json)
 
@@ -356,7 +358,9 @@ class Auditor:
             h.setFormatter(logging.Formatter(fmt=fmt, datefmt=dfmt))
             self.log.addHandler(h)
             self.log.setLevel(logging.INFO)
-
+        
+        #self._ensure_audit_header()
+        #self._write_injections_csv()
         self.log.info(
             f"[AUDIT] init audit_dir={self.audit_dir} "
             f"persist_json={self.persist_json} "
@@ -371,6 +375,38 @@ class Auditor:
             f"dm_window={self.dm_window} "
             f"beam_window={self.beam_window}"
         )
+
+    @staticmethod
+    def _parse_injection_file(path: str):
+        """
+        Yield dicts from
+        `injections_for_audit.txt`. Skips lines starting with '#'.
+        """
+        if not os.path.exists(path):
+            return
+        with open(path, "r") as fh:
+            for ln in fh:
+                ln = ln.strip()
+                if not ln or ln.startswith("#"):
+                    continue
+                # Expect 7 tokens: MJD Beam DM SNR Width_fwhm spec_ind FRBno
+                toks = ln.split()
+                if len(toks) < 7:
+                    continue
+                try:
+                    mjd        = float(toks[0])
+                    beam       = int(toks[1])
+                    dm         = float(toks[2])
+                    snr        = float(toks[3])
+                    width_fwhm = float(toks[4])
+                    spec_ind   = float(toks[5])
+                    frbno      = str(toks[6])
+                except Exception:
+                    continue
+                yield dict(
+                    MJD=mjd, Beam=beam, DM=dm, SNR=snr,
+                    Width_fwhm=width_fwhm, spec_ind=spec_ind, FRBno=frbno
+                )
 
     def ingest_legacy_injections(self, legacy_path: str) -> int:
         """
@@ -416,6 +452,60 @@ class Auditor:
         self.log.info(f"[AUDIT][ingest] added {added} new injections from legacy file")
         print(f"[AUDIT][ingest] added {added} new injections from legacy file")
         return added
+
+    def attach_injection_source(self, path: str):
+        """
+        Register the on-disk file we should watch and refresh from.
+        Does not force an immediate load; call refresh_from_source() to load.
+        """
+        self._source_file_path = str(path)
+        try:
+            self._source_mtime = os.path.getmtime(self._source_file_path)
+        except Exception:
+            self._source_mtime = None
+
+    def refresh_from_source(self, force: bool = False) -> int:
+        """
+        If the source file changed (mtime bumped) or force=True,
+        parse it and seed/update injections. Returns number of
+        new/updated rows applied.
+        - New rows: seed as new injection (G0=1, others -1).
+        - Existing rows (same inj_id): update meta fields (SNR, width, spec_ind, FRBno)
+        without touching gate states.
+        """
+        if not self._source_file_path:
+            return 0
+
+        try:
+            mtime = os.path.getmtime(self._source_file_path)
+        except Exception:
+            return 0
+
+        if (not force) and (self._source_mtime is not None) and (mtime <= self._source_mtime):
+            return 0  # no change
+
+        applied = 0
+        for meta in self._parse_injection_file(self._source_file_path):
+            inj_id = _stable_inj_id(meta["MJD"], meta["Beam"], meta["DM"])
+            if inj_id not in self.injections:
+                # brand-new
+                self.seed_injection(inj_id, meta)
+                applied += 1
+            else:
+                # update meta (non-destructive to gates/candname/stats)
+                st = self.injections[inj_id]
+                inj = st.get("inj", {})
+                inj["SNR"]        = float(meta.get("SNR", inj.get("SNR", ""))) if str(meta.get("SNR", "")) != "" else inj.get("SNR", "")
+                inj["Width_fwhm"] = float(meta.get("Width_fwhm", inj.get("Width_fwhm", ""))) if str(meta.get("Width_fwhm", "")) != "" else inj.get("Width_fwhm", "")
+                inj["spec_ind"]   = float(meta.get("spec_ind", inj.get("spec_ind", ""))) if str(meta.get("spec_ind", "")) != "" else inj.get("spec_ind", "")
+                inj["FRBno"]      = str(meta.get("FRBno", inj.get("FRBno", "")))
+                st["inj"] = inj
+                applied += 1
+
+        # bump mtime and rewrite rolling CSV snapshot
+        self._source_mtime = mtime
+        self._write_injections_csv()
+        return applied
 
     def _now_iso(self) -> str:
         return datetime.datetime.utcnow().isoformat()

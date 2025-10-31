@@ -47,8 +47,8 @@ for kk in [17,18]:
         ind = 0#int(ii%2)#np.where(params[:,-1]==float(frbno))[0]
 
         #mysnr = 0.08#0.2-np.random.uniform()*0.14
-        #mysnr = 0.125
-        mysnr=0.2
+        mysnr = 0.125
+        #mysnr=0.2
         
         DM, SNR, Width_fwhm, spec_ind = params[ind][0],params[ind][1],params[ind][2],params[ind][3]
         print("pushing injection to command to etcd")

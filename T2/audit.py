@@ -38,6 +38,7 @@ from astropy.io import ascii
 from astropy.io.ascii.core import InconsistentTableError
 
 from T2 import cluster_heimdall
+import csv
 
 # default output root for production runs (socket.py can override with absolute path)
 DEFAULT_AUDIT_DIR = Path("audit_results")
@@ -135,6 +136,56 @@ _INJECTIONS_HEADER = [
     "t2_output_file",
     "exception",
 ]
+
+def _roundish(x, nd=3):
+    try:
+        return round(float(x), nd)
+    except Exception:
+        return x
+
+def _as_int_seconds(x):
+    try:
+        return int(float(x))
+    except Exception:
+        return ""
+        
+def _state_fingerprint(st: dict) -> tuple:
+    gates = st.get("gates", {})
+    t1b = st.get("t1_best", {})
+    telem = st.get("stats", {})
+
+    gates_tup = tuple(gates.get(k, -1) for k in [
+        "G0_injected","G1_parsed","G2_T1_detected","G3_beam_kept",
+        "G4_clustered","G5_filters_passed","G6_cooldown_ok","G7_triggered"
+    ])
+
+    t1_tup = (
+        _roundish(t1b.get("t1_best_snr","")),
+        _roundish(t1b.get("t1_best_dm","")),
+        t1b.get("t1_best_ibox",""),
+        t1b.get("t1_best_ibeam",""),
+        _roundish(t1b.get("t1_dt_sec","")),
+        _roundish(t1b.get("t1_ddm","")),
+        t1b.get("t1_dbeam",""),
+    )
+
+    telem_tup = (
+        telem.get("npoints_tab",""),
+        telem.get("npoints_after_flag",""),
+        telem.get("nclusters",""),
+        telem.get("cluster_size",""),
+        telem.get("cntb",""),
+        telem.get("cntc",""),
+        _roundish(telem.get("peak_snr","")),
+        _roundish(telem.get("peak_dm","")),
+        telem.get("peak_ibox",""),
+        telem.get("peak_ibeam",""),
+        _as_int_seconds(telem.get("cooldown_wait_s","")),
+        telem.get("t2_output_file",""),
+    )
+
+    return (gates_tup, t1_tup, telem_tup, st.get("drop_reason",""), st.get("candname",""))
+
 
 
 def _merge_gate(st: Dict[str, Any], gate_name: str, new_val: int):
@@ -266,18 +317,23 @@ def _extract_peak_info_for_injection(
     return out
 
 
-def _earliest_drop_reason(gates: Dict[str, int]) -> Optional[str]:
+
+def _earliest_drop_reason(gates: Dict[str, int], *, empty_gulp: bool|None=None) -> Optional[str]:
     """
-    Get reason for early gate failure, if any.
+    If empty_gulp is True, T1 returned zero rows this gulp.
+    If False, T1 had rows but (potentially) no match.
+    If None, we don't know (keep legacy behavior).
     """
     g1 = gates.get("G1_parsed", -1)
     g2 = gates.get("G2_T1_detected", -1)
 
     if g1 == 0:
-        return "no_parse"
+        # distinguish the two early cases if we know it
+        return "t1_empty" if empty_gulp else "no_parse"
     if g2 == 0:
         return "no_T1_in_window"
     return None
+
 
 
 def _stable_inj_id(mjd: float, beam: int, dm: float) -> str:
@@ -536,13 +592,11 @@ class Auditor:
         return self.state_dir / f"{inj_id}.json"
 
     def _flock_append_csvrow(self, path: Path, row_dict: Dict[str, Any]):
-        """
-        Append one CSV row (dict with keys matching _AUDIT_LOG_HEADER)
-        using flock to avoid writer collisions.
-        """
+        import csv
         df = pd.DataFrame([row_dict], columns=_AUDIT_LOG_HEADER)
         csv_buf = io.StringIO()
-        df.to_csv(csv_buf, index=False, header=False)
+        # Force quotes around string fields so lists like "[1,2,3]" don't explode columns
+        df.to_csv(csv_buf, index=False, header=False, quoting=csv.QUOTE_MINIMAL)
         line = csv_buf.getvalue()
 
         with open(path, "a") as fh:
@@ -550,14 +604,15 @@ class Auditor:
             fh.write(line if line.endswith("\n") else line + "\n")
             fcntl.flock(fh, fcntl.LOCK_UN)
 
+
     def _median_mjd_from_tab(self, tab: Table) -> float:
         if tab is not None and len(tab) and ("mjds" in tab.colnames):
             try:
                 return float(np.median(tab["mjds"]))
             except Exception:
                 pass
-        # fallback: current time
-        return Time.now().mjd
+        # empty tab or no mjds column
+        return None
 
     def _iter_injections_in_window(
         self,
@@ -657,6 +712,11 @@ class Auditor:
         """
         try:
             mjd_now = self._median_mjd_from_tab(tab)
+            if mjd_now is None:
+                self.log.warning(f"[AUDIT][update] cannot determine mjd_now from tab likely because it is empty.")
+                print(f"[AUDIT][update] cannot determine mjd_now from tab likely because it is empty.")
+                return
+
             self.log.info(
                 f"[AUDIT][update] start gulp={gulp} host={host} len(tab)={len(tab)} mjd_now={mjd_now}"
             )
@@ -665,12 +725,15 @@ class Auditor:
             )
 
             for inj_id, st in self._iter_injections_in_window(mjd_now):
+                if st.get("_frozen", False):
+                    continue
                 inj = st["inj"]
                 inj_mjd = float(inj["MJD"])
                 inj_dm = float(inj["DM"])
                 inj_beam = int(inj["Beam"])
 
                 npoints_tab = int(len(tab))
+                empty_gulp = (npoints_tab == 0)
                 gate_G1_parsed = 1 if npoints_tab > 0 else 0
 
                 # match injection to tab rows
@@ -692,7 +755,7 @@ class Auditor:
                 _merge_gate(st, "G2_T1_detected", gate_G2_T1_detected)
 
                 # earliest failure reason, if any, after this stage
-                er = _earliest_drop_reason(st["gates"])
+                er = _earliest_drop_reason(st["gates"], empty_gulp=empty_gulp)
                 if er:
                     st["drop_reason"] = er
 
@@ -704,19 +767,29 @@ class Auditor:
 
                 if self.persist_json:
                     self._persist_state_json(inj_id)
+                #dedupe: write only if state changed
+                fp = _state_fingerprint(st)
+                #If G3 is already evaluated, skip logging unless other state changed
+                already_finalized = st["gates"].get("G3_beam_kept", -1) in (0, 1)
+                if npoints_tab == 0 and already_finalized:
+                    #ignore empty gulp if already finalized
+                    pass
+                
+                elif fp != st.get("_last_fp"):
+                    meta = {
+                        "gulp": gulp,
+                        "host": host,
+                        "npoints_tab": npoints_tab,
+                        "npoints_after_flag": "",
+                        "nbeams_queue_snapshot": json.dumps(list(nbeams_queue_snapshot)),
+                        "nbeams_queue_sum": int(nbeams_queue_sum),
+                        "drop_reason": st.get("drop_reason", ""),
+                    }
+                    meta.update(t1_best)
+                    self._append_audit_log(inj_id, st, meta, exception="")
+                    st["_last_fp"] = fp
 
-                meta = {
-                    "gulp": gulp,
-                    "host": host,
-                    "npoints_tab": npoints_tab,
-                    "npoints_after_flag": "",
-                    "nbeams_queue_snapshot": json.dumps(list(nbeams_queue_snapshot)),
-                    "nbeams_queue_sum": int(nbeams_queue_sum),
-                    "drop_reason": st.get("drop_reason", ""),
-                }
-                meta.update(t1_best)
-                self._append_audit_log(inj_id, st, meta, exception="")
-
+               
             self._write_injections_csv()
 
             self.log.info(
@@ -772,6 +845,8 @@ class Auditor:
             npoints_after_flag_val = (int(len(tab_after_beam_flag)) if tab_after_beam_flag is not None else "")
 
             for inj_id, st in self._iter_injections_in_window(mjd_now):
+                if st.get("_frozen", False):
+                    continue
                 inj = st["inj"]
                 inj_mjd = float(inj["MJD"])
                 inj_dm = float(inj["DM"])
@@ -837,12 +912,20 @@ class Auditor:
                     max_nbeams_allowed = int(thresholds.get("max_nbeams", 40))
 
                     # G6_cooldown_ok:
-                    if cooldown_wait_s is None:
-                        gate_G6_cooldown_ok = 0
-                    else:
-                        min_timedelt = float(thresholds.get("min_timedelt", 60.0))
-                        gate_G6_cooldown_ok = 1 if cooldown_wait_s >= min_timedelt else 0
+                    min_timedelt = float(thresholds.get("min_timedelt", 60.0))
 
+                    if cooldown_wait_s is None:
+                        gate_G6_cooldown_ok = 1 #treat unknown as okay.
+                    else:
+                        try:
+                            cw = float(cooldown_wait_s)
+                            if not np.isfinite(cw):
+                                gate_G6_cooldown_ok = 1
+                            else:
+                                gate_G6_cooldown_ok = 1 if cw >= min_timedelt else 0
+                        except Exception:
+                            gate_G6_cooldown_ok = 1
+                            
                     # G7_triggered:
                     gate_G7_triggered = 1 if bool(triggered) else 0
 
@@ -852,33 +935,39 @@ class Auditor:
                     _merge_gate(st, "G6_cooldown_ok", gate_G6_cooldown_ok)
                     _merge_gate(st, "G7_triggered", gate_G7_triggered)
 
+
+                    effective_G1 = st["gates"].get("G1_parsed", -1)
+                    effective_G2 = st["gates"].get("G2_T1_detected", -1)
+                    effective_G3 = st["gates"].get("G3_beam_kept", -1)
+                    effective_G4 = st["gates"].get("G4_clustered", -1)
+                    effective_G5 = st["gates"].get("G5_filters_passed", -1)
+                    effective_G6 = st["gates"].get("G6_cooldown_ok", -1)
+                    effective_G7 = st["gates"].get("G7_triggered", -1)
+
+                    # early gates first
+                    er = _earliest_drop_reason(st["gates"])
+                    if er:
+                        st["drop_reason"] = er
+                    else:
+                        if effective_G3 == 0:
+                            st["drop_reason"] = "beam_flagged"
+                        elif effective_G4 == 0:
+                            st["drop_reason"] = "no_cluster_peak"
+                        elif effective_G5 == 0:
+                            st["drop_reason"] = "filtered_out"
+                        elif nbeams_queue_sum > max_nbeams_allowed:
+                            st["drop_reason"] = f"nbeams_gate_exceeded({nbeams_queue_sum}>{max_nbeams_allowed})"
+                        elif effective_G6 == 0:
+                            st["drop_reason"] = (f"cooldown({cooldown_wait_s:.2f}s<{float(thresholds.get('min_timedelt',60.0))}s)")
+                        elif effective_G7 == 0:
+                            st["drop_reason"] = "not_triggered"
+                        else:
+                            st["drop_reason"] = ""
+
+
                     # name the candidate we're associating
                     if candname_for_injection:
                         st["candname"] = candname_for_injection
-
-                    # compute late-stage drop_reason only if early path did not fail
-                    drop_reason = ""
-                    if gate_G4_clustered == 0:
-                        drop_reason = "no_cluster_peak"
-                    elif gate_G5_filters_passed == 0:
-                        drop_reason = "filtered_out"
-                    elif nbeams_queue_sum > max_nbeams_allowed:
-                        drop_reason = (
-                            f"nbeams_gate_exceeded({nbeams_queue_sum}>{max_nbeams_allowed})"
-                        )
-                    elif gate_G6_cooldown_ok == 0:
-                        if cooldown_wait_s is None:
-                            drop_reason = "cooldown_unknown"
-                        else:
-                            drop_reason = (
-                                f"cooldown({cooldown_wait_s:.2f}s<"
-                                f"{float(thresholds.get('min_timedelt',60.0))}s)"
-                            )
-                    elif gate_G7_triggered == 0:
-                        drop_reason = "not_triggered"
-                    
-                    er = _earliest_drop_reason(st["gates"])
-                    st["drop_reason"] = er if er else drop_reason
 
                     # stats snapshot
                     st["stats"]["nclusters"] = (
@@ -932,12 +1021,20 @@ class Auditor:
                 if "t1_best" in st and st["t1_best"]:
                     meta.update(st["t1_best"])
 
-                self._append_audit_log(
-                    inj_id=inj_id,
-                    st=st,
-                    meta=meta,
-                    exception=st["stats"].get("exception", ""),
-                )
+                # dedupe: only append if state changed
+                fp = _state_fingerprint(st)
+
+                if fp != st.get("_last_fp"):
+                    self._append_audit_log(
+                        inj_id=inj_id,
+                        st=st,
+                        meta=meta,
+                        exception=st["stats"].get("exception", ""),
+                    )
+                    st["_last_fp"] = fp
+                
+                if st["gates"].get("G3_beam_kept", -1) in (0, 1):
+                    st["_frozen"] = True
 
             self._write_injections_csv()
 

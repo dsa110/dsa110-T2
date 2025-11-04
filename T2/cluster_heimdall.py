@@ -31,6 +31,9 @@ except:
 
 from event import names  # TODO: add event to get DSAEvent class
 import slack_sdk as slack
+import fcntl
+import pandas as pd
+import datetime
 
 
 # set up slack client
@@ -45,6 +48,60 @@ with open(slack_file) as sf_handler:
 offset = 1907
 downsample = 4
 NSNR = 10
+
+
+
+def dump_T1_csv(tab, gulp, dump_dir):
+    print("dump_T1_csv: called", flush=True)
+    if tab is None or len(tab) == 0:
+        print("dump_T1_csv: tab empty, nothing to write", flush=True)
+        return
+
+    # ensure directory exists
+    try:
+        os.makedirs(dump_dir, exist_ok=True)
+    except Exception as e:
+        raise RuntimeError(f"mkdir({dump_dir}) failed: {e}")
+
+    day = datetime.datetime.utcnow().strftime("%Y%m%d")
+    path = os.path.join(dump_dir, f"t1_candidates_{day}.csv")
+
+    # build DataFrame
+    recv_ts_iso = datetime.datetime.utcnow().isoformat()
+    cols = ["snr","if","itime","mjds","ibox","idm","dm","ibeam"]
+    n = len(tab)
+
+    # make every column length-n, even if missing in tab
+    data_core = {}
+    for c in cols:
+        if c in tab.colnames:
+            data_core[c] = np.asarray(tab[c])
+        else:
+            # use object dtype so empty strings are fine
+            data_core[c] = np.full(n, "", dtype=object)
+
+    df_core = pd.DataFrame(data_core)
+
+    df_meta = pd.DataFrame({
+        "gulp": np.full(n, int(gulp) if gulp is not None else "", dtype=object),
+        "recv_ts_iso": np.full(n, recv_ts_iso, dtype=object),
+    })
+
+    df = pd.concat([df_meta, df_core], axis=1)
+
+    header = ["gulp","recv_ts_iso"] + cols
+    write_header = not os.path.exists(path)
+
+    csv_lines = df.to_csv(index=False, header=False)
+
+    with open(path, "a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        if write_header:
+            fh.write(",".join(header) + "\n")
+        fh.write(csv_lines if csv_lines.endswith("\n") else csv_lines + "\n")
+        fcntl.flock(fh, fcntl.LOCK_UN)
+
+    print(f"dump_T1_csv: wrote {len(df)} rows to {path}", flush=True)
 
 
 def parse_candsfile(candsfile):
@@ -304,6 +361,92 @@ def get_peak(tab, nsnr=NSNR):
 
     return tab2
 
+# Old filter cluster function, commented out for testing: Vishnu (This likely has a bug!)
+# def filter_clustered(
+#         tab,
+#         min_dm=50,
+#         min_snr=7.5,
+#         min_snr_wide=9,
+#         min_snr_1arm=10,
+#         wide_ibox=17,
+#         max_ibox=33,
+#         min_cntb=None,
+#         max_cntb=None,
+#         max_cntb0=None,
+#         min_cntc=None,
+#         max_cntc=None,
+#         max_ncl=None,
+#         target_params=None,
+#         frac_wide=0.0,
+#         nsnr=NSNR
+# ):
+#     """Function to select a subset of clustered output.
+#     Can set minimum SNR, min/max number of beams in cluster, min/max total count in cluster.
+#     target_params is a tuple (min_dmt, max_dmt, min_snrt) for custom snr threshold for target.
+#     max_ncl is maximum number of clusters returned (sorted by SNR).
+#     """
+
+#     if target_params is not None:
+#         min_dmt, max_dmt, min_snrt = target_params
+#     else:
+#         min_dmt, max_dmt, min_snrt = None, None, None
+
+#     good = [True] * len(tab)
+
+#     if min_snr is not None:
+#         if min_snrt is None:
+#             # snr limit for narrow and wide, with requirement of at least two beams
+#             df = tab.to_pandas()
+            
+#             nsarr = ((df[[f'beams{i}' for i in range(nsnr)]].values > 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
+#             ewarr = ((df[[f'beams{i}' for i in range(nsnr)]].values <= 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
+#             twoarm = (ewarr.any(axis=1) & nsarr.any(axis=1)) | (df['snr'].values > min_snr_1arm).any()
+
+#             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
+#             good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
+#             good *= good0*twoarm + good1*twoarm
+
+#         else:
+#             good0 = (tab["snr"] > min_snr) * (tab["dm"] > max_dmt)
+#             good1 = (tab["snr"] > min_snr) * (tab["dm"] < min_dmt)
+#             good2 = (
+#                 (tab["snr"] > min_snrt)
+#                 * (tab["dm"] > min_dmt)
+#                 * (tab["dm"] < max_dmt)
+#             )
+#             good *= good0 + good1 + good2
+            
+
+#     if min_dm is not None:
+#         good *= tab["dm"] > min_dm
+#     if max_ibox is not None:
+#         good *= tab["ibox"] < max_ibox
+#     if min_cntb is not None:
+#         good *= tab["cntb"] > min_cntb
+#     if max_cntb is not None:
+#         good *= tab["cntb"] < max_cntb
+#     if min_cntc is not None:
+#         good *= tab["cntc"] > min_cntc
+#     if max_cntc is not None:
+#         good *= tab["cntc"] < max_cntc
+
+#     tab_out = tab[good]
+
+#     if max_ncl is not None:
+#         if len(tab_out) > max_ncl:
+#             min_snr_cl = sorted(tab_out["snr"])[-max_ncl]
+#             good = tab_out["snr"] >= min_snr_cl
+#             tab_out = tab_out[good]
+#             print(
+#                 f"Limiting output to {max_ncl} clusters with snr>{min_snr_cl}."
+#             )
+
+#     logger.info(
+#         f"Filtering clusters from {len(tab)} to {len(tab_out)} candidates."
+#     )
+#     print(f"Filtering clusters from {len(tab)} to {len(tab_out)} candidates.")
+
+#     return tab_out
 
 def filter_clustered(
         tab,
@@ -323,68 +466,79 @@ def filter_clustered(
         frac_wide=0.0,
         nsnr=NSNR
 ):
-    """Function to select a subset of clustered output.
-    Can set minimum SNR, min/max number of beams in cluster, min/max total count in cluster.
-    target_params is a tuple (min_dmt, max_dmt, min_snrt) for custom snr threshold for target.
-    max_ncl is maximum number of clusters returned (sorted by SNR).
+    """Select a subset of clustered output.
+    Same decision logic as before; fixes the global .any() bug and replaces * with boolean ops.
     """
 
+    # target params wiring unchanged
     if target_params is not None:
         min_dmt, max_dmt, min_snrt = target_params
     else:
         min_dmt, max_dmt, min_snrt = None, None, None
 
-    good = [True] * len(tab)
+    import numpy as np  # local to keep this drop-in self-contained
+
+    # start with "all True" mask
+    good = np.ones(len(tab), dtype=bool)
 
     if min_snr is not None:
         if min_snrt is None:
-            # snr limit for narrow and wide, with requirement of at least two beams
+            # Two-arm requirement or row-wise 1-arm SNR allowance
             df = tab.to_pandas()
-            nsarr = ((df[[f'beams{i}' for i in range(nsnr)]].values > 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
-            ewarr = ((df[[f'beams{i}' for i in range(nsnr)]].values <= 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
-            twoarm = (ewarr.any(axis=1) & nsarr.any(axis=1)) | (df['snr'].values > min_snr_1arm).any()
 
-            good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
-            good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
-            good *= good0*twoarm + good1*twoarm
+            # beams matrix (n_rows x nsnr), snrs matrix ditto
+            beams_mat = df[[f'beams{i}' for i in range(nsnr)]].values
+            snrs_mat  = df[[f'snrs{i}'  for i in range(nsnr)]].values
+
+            # arm presence per row: need a positive SNR in that arm
+            nsarr = (beams_mat > 255) & (snrs_mat > 0)
+            ewarr = (beams_mat <= 255) & (snrs_mat > 0)
+
+            has_ns = nsarr.any(axis=1)
+            has_ew = ewarr.any(axis=1)
+
+            # FIX: row-wise 1-arm override, not global .any()
+            one_arm_strong = (df['snr'].values > float(min_snr_1arm))
+
+            twoarm_ok = (has_ns & has_ew) | one_arm_strong
+
+            # narrow vs wide SNR thresholds
+            narrow_ok = (tab["snr"] > min_snr) & (tab["ibox"] < wide_ibox)
+            wide_ok   = (tab["snr"] > min_snr_wide) & (tab["ibox"] >= wide_ibox)
+
+            good &= (twoarm_ok & (narrow_ok | wide_ok))
         else:
-            good0 = (tab["snr"] > min_snr) * (tab["dm"] > max_dmt)
-            good1 = (tab["snr"] > min_snr) * (tab["dm"] < min_dmt)
-            good2 = (
-                (tab["snr"] > min_snrt)
-                * (tab["dm"] > min_dmt)
-                * (tab["dm"] < max_dmt)
-            )
-            good *= good0 + good1 + good2
-            
+            # target window logic unchanged
+            good0 = (tab["snr"] > min_snr) & (tab["dm"] > max_dmt)
+            good1 = (tab["snr"] > min_snr) & (tab["dm"] < min_dmt)
+            good2 = ((tab["snr"] > min_snrt) &
+                     (tab["dm"] > min_dmt) &
+                     (tab["dm"] < max_dmt))
+            good &= (good0 | good1 | good2)
 
     if min_dm is not None:
-        good *= tab["dm"] > min_dm
+        good &= (tab["dm"] > min_dm)
     if max_ibox is not None:
-        good *= tab["ibox"] < max_ibox
+        good &= (tab["ibox"] < max_ibox)
     if min_cntb is not None:
-        good *= tab["cntb"] > min_cntb
+        good &= (tab["cntb"] > min_cntb)
     if max_cntb is not None:
-        good *= tab["cntb"] < max_cntb
+        good &= (tab["cntb"] < max_cntb)
     if min_cntc is not None:
-        good *= tab["cntc"] > min_cntc
+        good &= (tab["cntc"] > min_cntc)
     if max_cntc is not None:
-        good *= tab["cntc"] < max_cntc
+        good &= (tab["cntc"] < max_cntc)
 
     tab_out = tab[good]
 
-    if max_ncl is not None:
-        if len(tab_out) > max_ncl:
-            min_snr_cl = sorted(tab_out["snr"])[-max_ncl]
-            good = tab_out["snr"] >= min_snr_cl
-            tab_out = tab_out[good]
-            print(
-                f"Limiting output to {max_ncl} clusters with snr>{min_snr_cl}."
-            )
+    if max_ncl is not None and len(tab_out) > max_ncl:
+        # same “top by SNR” trimming
+        min_snr_cl = sorted(tab_out["snr"])[-max_ncl]
+        keep = (tab_out["snr"] >= min_snr_cl)
+        tab_out = tab_out[keep]
+        print(f"Limiting output to {max_ncl} clusters with snr>{min_snr_cl}.")
 
-    logger.info(
-        f"Filtering clusters from {len(tab)} to {len(tab_out)} candidates."
-    )
+    logger.info(f"Filtering clusters from {len(tab)} to {len(tab_out)} candidates.")
     print(f"Filtering clusters from {len(tab)} to {len(tab_out)} candidates.")
 
     return tab_out
@@ -393,16 +547,15 @@ def filter_clustered(
 def get_nbeams(tab, threshold=7.5):
     """Calculate number of beams in table above SNR threshold."""
 
-    goody = [True] * len(tab)
-    goody *= tab["snr"] > threshold
+    if len(tab) == 0:
+        return 0
+    goody = (tab["snr"] > threshold)
     tab_out2 = tab[goody]
-    if len(tab_out2) > 0:
-        ibeams = np.asarray(tab_out2["ibeam"])
-        nbeams = len(np.unique(ibeams))
-    else:
-        nbeams = 0
+    if len(tab_out2) == 0:
+        return 0
+    ibeams = np.asarray(tab_out2["ibeam"])
+    return len(np.unique(ibeams))
 
-    return nbeams
 
 
 def dump_cluster_results_json(
@@ -465,33 +618,39 @@ def dump_cluster_results_json(
         t_close = 300 # seconds  TODO: why not 1 sec?
         dm_close = 20 # pc/cm3
         beam_close = 2 # number
-        sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/(3600*24)
+
+        sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/86400.0
         sel_dm = np.abs(tab_inj["DM"] - dm) < dm_close
         sel_beam = np.abs(tab_inj["Beam"] - ibeam) < beam_close
         sel_beam_2 = np.abs(tab_inj["Beam"]+256 - ibeam) < beam_close
-        #print(f"INJECTION TEST: min abs time diff {np.abs((tab_inj['MJD']-mjd)*24*3600).min()} seconds. Sel any? t {sel_t.any()}, dm {sel_dm.any()}, beam {sel_beam.any()}, beam2 {sel_beam_2.any()}")
-        sel = sel_t*sel_dm*sel_beam
-        sel2 = sel_t*sel_dm*sel_beam_2
-        if len(np.where(sel)[0]):
+
+        mask = sel_t & sel_dm & (sel_beam | sel_beam_2)
+        sub = tab_inj[mask]
+
+        if len(sub):
+            #safety check to only pick injections that happened before event detection time
+            priors = sub[sub["MJD"] <= mjd]
+            if len(priors):
+                pick_idx = int(np.argmax(priors["MJD"]))
+                best = priors[pick_idx]
+            else:
+                #pick closest in time by delta t
+                dt = np.abs(sub["MJD"] - mjd)
+                pick_idx = int(np.argmin(dt))
+                best = sub[pick_idx]
+            
+            best_frbno = str(best["FRBno"])
+            basename = names.increment_name(mjd, lastname=lastname)
+            candname = f"{basename}_inj{best_frbno}"
             isinjection = True
-            selt = sel
-        if len(np.where(sel2)[0]):
-            isinjection = True
-            selt = sel2
+            print(f"Candidate identified as injection. Naming it {candname}")
+
+        else:
+            candname = names.increment_name(mjd, lastname=lastname)
+            isinjection = False
 
         if time.Time.now().mjd - mjd > 13:
-            logger.warning("Event MJD is {mjd}, which is more than 13 days in the past. SNAP counter overflow?")
-
-    if isinjection:
-        basename = names.increment_name(mjd, lastname=lastname)
-        candname = f"{basename}_inj{tab_inj[selt][-1]['FRBno']}"
-        print(f"Candidate identified as injection. Naming it {candname}")
-        if len(selt) > 1:
-            print(f"Found {len(selt)} injections coincident with this event. Using first.")
-        # if injection is found, skip the voltage trigger via etcd
-    else:
-        # if no injection file or no coincident injection
-        candname = names.increment_name(mjd, lastname=lastname)
+            logger.warning(f"Event MJD is {mjd}, which is more than 13 days in the past. SNAP counter overflow?")
 
     output_dict = {candname: {}}
     if outputfile is None:
@@ -500,7 +659,7 @@ def dump_cluster_results_json(
     row = tab[imaxsnr]
     red_tab = tab[imaxsnr : imaxsnr + 1]
     for col in output_cols:
-        if type(row[col]) == np.int64:
+        if isinstance(row[col], np.integer):
             output_dict[candname][col] = int(row[col])
         else:
             output_dict[candname][col] = row[col]
@@ -553,10 +712,11 @@ def dump_cluster_results_json(
                         f"Writing trigger file for index {imaxsnr} with SNR={maxsnr}"
                     )
                     json.dump(output_dict, f, ensure_ascii=False, indent=4)   # could replace this with DSAEvent method
-
+                
+                sent_voltage_trigger = False
                 if trigger and time.Time.now().mjd - mjd < 13:
-                    send_trigger(output_dict=output_dict)
-                    trigtime = time.Time.now()
+                    sent_voltage_trigger = send_trigger(output_dict=output_dict)
+                    trigtime = time.Time.now() if sent_voltage_trigger else None
                 else:
                     trigtime = None
 
@@ -585,9 +745,10 @@ def dump_cluster_results_json(
                 )
                 json.dump(output_dict, f, ensure_ascii=False, indent=4)
 
+            sent_voltage_trigger = False
             if trigger and time.Time.now().mjd - mjd < 13:
-                send_trigger(output_dict=output_dict)
-                trigtime = time.Time.now()
+                sent_voltage_trigger = send_trigger(output_dict=output_dict)
+                trigtime = time.Time.now() if sent_voltage_trigger else None
             else:
                 trigtime = None
 
@@ -617,16 +778,20 @@ def get_radec(output_dict=None, mjd=None, beamnum=None, nsnr=5):
         tt = time.Time(canddict['mjds'], format='mjd')
         beamnum_ew = None
         beamnum_ns = None
+        found_any = False
         for i in range(nsnr):
-            if canddict[f'snrs{i}'] > 0:
-                beam = canddict[f'beams{i}']
-            if beam < 256 and beamnum_ew is None:
+            if canddict.get(f'snrs{i}', 0) > 0:
+                beam = int(canddict.get(f'beams{i}', -1))
+            if 0 <= beam < 256 and beamnum_ew is None:
                 beamnum_ew = beam
+                found_any = True
             elif beam >= 256 and beamnum_ns is None:
                 beamnum_ns = beam
-            elif beamnum_ns is not None and beamnum_ew is not None:
+                found_any = True
+            if beamnum_ns is not None and beamnum_ew is not None:
                 break
-        beamnum = beamnum_ew
+        #prefer EW beam for single-arm fallback
+        beamnum = beamnum_ew if beamnum is None else beamnum
     elif mjd is not None:
         print("Using time to get ra,dec")
         tt = time.Time(mjd, format="mjd")
@@ -638,46 +803,49 @@ def get_radec(output_dict=None, mjd=None, beamnum=None, nsnr=5):
     return ra.value, dec.value
 
 
-def send_trigger(output_dict=None, outputfile=None):
-    """Use either json file or dict to send trigger for voltage dumps via etcd."""
+def send_trigger(output_dict=None, outputfile=None) -> bool:
+    """Use either json file or dict to send trigger for voltage dumps via etcd.
+       Return True if trigger sent else False.
+    """
 
     if outputfile is not None:
         print("Overloading output_dict trigger info with that from outputfile")
         logger.info(
             "Overloading output_dict trigger info with that from outputfile"
         )
-        with open(outputfile, "w") as f:
+        with open(outputfile, "r") as f:
             output_dict = json.load(f)
 
     candname = list(output_dict)[0]
     val = output_dict.get(candname)
-    isinjection = output_dict[candname]['injected']
+    isinjection = bool(output_dict[candname].get('injected', False))
 
-    if not isinjection:
-        print(
-            f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
-        )
-        logger.info(
-            f"Sending trigger for candidate {candname} with specnum {val['specnum']}"
-        )
+    if isinjection:
+        try:
+            print(f"Candidate {candname} was detected as an injection. Not triggering voltage recording.")
+            slack_client.chat_postMessage(channel='candidates', text=f'Injection detected as {candname} with DM={val["dm"]} and SNR={val["snr"]}.')
+        except Exception as _e:
+            print(f"Slack post failed: {_e}")
+            logger.warning(f"Slack post failed: {_e}")
+        #Do NOT trigger voltage dump for injections
+        return False
 
-        with open(f"/home/ubuntu/data/T2test/{candname}.json", "w") as f:  # encoding='utf-8'
-            print(
-                f"Writing dump dict"
-            )
-            json.dump({"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'}, f, ensure_ascii=False, indent=4)
+    print(f"Sending trigger for candidate {candname} with specnum {val['specnum']}")
+    logger.info(f"Sending trigger for candidate {candname} with specnum {val['specnum']}")
 
-        ds.put_dict(
-            "/cmd/corr/0",
-            {"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'},
-        )  # triggers voltage dump in corr.py
-        ds.put_dict(
-            "/mon/corr/1/trigger", output_dict
-        )  # tells look_after_dumps.py to manage data
-    else:
-        print(f"Candidate {candname} was detected as an injection. Not triggering voltage recording.")
-        slack_client.chat_postMessage(channel='candidates', text=f'Injection detected as {candname} with DM={val["dm"]} and SNR={val["snr"]}.')
-
+    with open(f"/home/ubuntu/data/T2test/{candname}.json", "w") as f:  # encoding='utf-8'
+        print(f"Writing dump dict")
+        json.dump({"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'}, f, ensure_ascii=False, indent=4)
+    
+    try:
+        ds.put_dict("/cmd/corr/0",{"cmd": "trigger", "val": f'{val["specnum"]}-{candname}-'},)  # triggers voltage dump in corr.py
+        ds.put_dict("/mon/corr/1/trigger", output_dict)  # tells look_after_dumps.py to manage data
+    except Exception as _e:
+        print(f"Error sending trigger via etcd: {_e}")
+        logger.error(f"Error sending trigger via etcd: {_e}")
+        return False
+    return True
+    
 
 def dump_cluster_results_heimdall(
     tab, outputfile, min_snr_t2out=None, max_ncl=None
@@ -720,4 +888,5 @@ def dump_cluster_results_heimdall(
 
     return False
         
-    
+
+   

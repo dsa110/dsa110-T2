@@ -160,11 +160,7 @@ def parse_socket(
             beam_window=beam_window,
             persist_json=bool(audit_dump_json),
         )
-        # try:
-        #     auditor.ingest_legacy_injections(INJECTION_FILE)
-        # except Exception as e:
-        #     logger.warning(f"AUDIT init: legacy ingestion/mirror failed: {e}")
-
+        
         auditor.attach_injection_source(INJECTION_FILE)
         added0 = auditor.refresh_from_source(force=True)
         if added0:
@@ -309,6 +305,8 @@ def parse_socket(
         if candsfile == "\n" or candsfile == "":  # skip empty candsfile
             print(f"candsfile is empty. Skipping.")
             logger.info(f"candsfile is empty. Skipping.")
+            # Advance the rolling window for this gulp
+            nbeams_queue.append(0)
             if audit_enabled and auditor is not None:
                 auditor.update_from_tab(
                     host=host,

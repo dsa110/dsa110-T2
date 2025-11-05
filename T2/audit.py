@@ -229,10 +229,13 @@ def _match_rows_for_injection(
         ddm = np.full(n, np.inf)
 
     if "ibeam" in tab.colnames:
-        dbeam0 = np.abs(tab["ibeam"] - inj_beam)
-        dbeam1 = np.abs(tab["ibeam"] - (inj_beam + 256))
-        dbeam_min = np.minimum(dbeam0, dbeam1)
-        which_arm = np.where(dbeam0 <= dbeam1, 0, 1)
+        base_local = int(inj_beam) % 256      # normalize to 0..255
+        ew_global  = base_local               # 0..255
+        ns_global  = base_local + 256         # 256..511
+        dbeam_ew = np.abs(tab["ibeam"] - ew_global)
+        dbeam_ns = np.abs(tab["ibeam"] - ns_global)
+        dbeam_min = np.minimum(dbeam_ew, dbeam_ns)
+        which_arm = np.where(dbeam_ew <= dbeam_ns, 0, 1)  # 0=EW match, 1=NS match
     else:
         dbeam_min = np.full(n, np.inf)
         which_arm = np.zeros(n, dtype=int)
@@ -263,11 +266,9 @@ def _match_rows_for_injection(
     best_idx = int(cand_ix[order[0]])
 
     # report arm-corrected beam distance
-    arm = which_arm[best_idx]
-    if arm == 0:
-        dbeam_report = int(np.abs(tab["ibeam"][best_idx] - inj_beam))
-    else:
-        dbeam_report = int(np.abs(tab["ibeam"][best_idx] - (inj_beam + 256)))
+    arm = int(which_arm[best_idx])  # 0=EW, 1=NS
+    matched_global = ew_global if arm == 0 else ns_global
+    dbeam_report = int(abs(int(tab["ibeam"][best_idx]) - matched_global))
 
     out = dict(
         t1_best_snr=float(tab["snr"][best_idx]) if "snr" in tab.colnames else "",

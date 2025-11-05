@@ -7,7 +7,7 @@ import slack_sdk as slack
 
 # ================== user knobs ==================
 # tune only these two to change the population
-USER_SNR_MIN = 8.0
+USER_SNR_MIN = 10.0
 USER_SNR_MAX = 25.0
 # =================================================
 
@@ -42,7 +42,7 @@ K_DEFAULT = 135.0   # recovered_snr ≈ K_DEFAULT * scale
 _DERIVED_SCALE_MIN = USER_SNR_MIN / K_DEFAULT
 _DERIVED_SCALE_MAX = USER_SNR_MAX / K_DEFAULT
 
-# global safety rails if hardware says so
+# global safety rails for scale
 GLOBAL_SCALE_MIN = 0.01
 GLOBAL_SCALE_MAX = 0.5
 

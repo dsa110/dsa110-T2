@@ -115,7 +115,6 @@ def parse_socket(
     # Audit Injection Setup
     audit_enabled = bool(audit_injections)
     auditor = None
-    injection_list_csv = None  # canonical injection list file path
 
     if audit_enabled:
         # Window parameters: try etcd -> t2_cnf -> hard defaults
@@ -140,17 +139,6 @@ def parse_socket(
         except Exception as _e:
             logger.warning(f"Could not create audit_dir {audit_dir}: {_e}")
 
-        # Canonical injection list lives inside audit_dir
-        injection_list_csv = os.path.join(audit_dir, "injections.csv")
-
-        # Initialize the file if missing, with a commented header
-        if not os.path.exists(injection_list_csv):
-            try:
-                with open(injection_list_csv, "w") as f:
-                    f.write("# MJD   Beam   DM    SNR   Width_fwhm   spec_ind   FRBno\n")
-            except Exception as _e:
-                logger.warning(f"Could not initialize injection list {injection_list_csv}: {_e}")
-
         # Instantiate Auditor with chosen persistence mode
         from T2.audit import Auditor
         auditor = Auditor(
@@ -160,7 +148,14 @@ def parse_socket(
             beam_window=beam_window,
             persist_json=bool(audit_dump_json),
         )
-        
+
+        try:
+            restored = auditor.bootstrap_from_snapshot()
+            if restored:
+                print(f"[AUDIT] bootstrap: restored {restored} injections from snapshot")
+        except Exception as e:
+            logger.warning(f"[AUDIT] bootstrap_from_snapshot failed: {e}")
+
         auditor.attach_injection_source(INJECTION_FILE)
         added0 = auditor.refresh_from_source(force=True)
         if added0:
@@ -323,15 +318,15 @@ def parse_socket(
 
 
         tab = cluster_heimdall.parse_candsfile(candsfile)
-        try:
-            added = auditor.refresh_from_source(force=False)
-            if added:
-                print(f"[AUDIT] reload: applied {added} injection rows from {INJECTION_FILE}")
-        except Exception as e:
-            logger.warning(f"[AUDIT] refresh_from_source failed: {e}")
-
         #injection auditor changes...
+
         if audit_enabled and auditor is not None:
+            try:
+                added = auditor.refresh_from_source(force=False)
+                if added:
+                    print(f"[AUDIT] reload: applied {added} injection rows from {INJECTION_FILE}")
+            except Exception as e:
+                logger.warning(f"[AUDIT] refresh_from_source failed: {e}")
             try:
                 # Early-stage audit update (G1/G2)
                 auditor.update_from_tab(

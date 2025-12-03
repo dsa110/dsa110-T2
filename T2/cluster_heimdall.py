@@ -4,6 +4,7 @@
 import json
 import os.path
 
+
 # from sklearn import cluster  # for dbscan
 #import hdbscan
 from sklearn.cluster import DBSCAN
@@ -193,14 +194,9 @@ def parse_candsfile(candsfile):
             )
         except:
             ret_time = 55000.0
-#        print(ret_time)
+       
         tab["mjds"] = tab["mjds"] + ret_time
 
-    #
-    #    snrs = tab['snr']
-    # how to use ibeam?
-
-    #    return tab, data, snrs
     return tab
 
 def flag_beams(tab,stat=5e5):
@@ -213,7 +209,6 @@ def flag_beams(tab,stat=5e5):
         stds[i] = np.std(tt)
         stds[i] *= len(tt)
         if stds[i]>stat:
-            print(f"Flagging beam {bms[i]}")
             tab2 = tab2[tab2["ibeam"]!=bms[i]]
             
     return tab2
@@ -233,7 +228,6 @@ def cluster_data(
     """
 
     tt = tab[selectcols]
-#    print(tt[:10])
     data = np.lib.recfunctions.structured_to_unstructured(
         tab[selectcols].as_array(), dtype=int
     )  # ok for single dtype (int)
@@ -347,9 +341,8 @@ def get_peak(tab, nsnr=NSNR):
     except:
         print("Error in adding beam SNRs")
         for i in range(nsnr):
-            print(list(snrs[i]))
-        beams = np.zeros((nsnr, ncl), dtype=int)
-        snrs = np.zeros((nsnr, ncl), dtype=float)
+            beams = np.zeros((nsnr, ncl), dtype=int)
+            snrs = np.zeros((nsnr, ncl), dtype=float)
         for i in range(nsnr):
             tab2[f'snrs{i}'] = list(snrs[i])
             tab2[f'beams{i}'] = list(beams[i])
@@ -361,99 +354,12 @@ def get_peak(tab, nsnr=NSNR):
 
     return tab2
 
-# Old filter cluster function, commented out for testing: Vishnu (This likely has a bug!)
-# def filter_clustered(
-#         tab,
-#         min_dm=50,
-#         min_snr=7.5,
-#         min_snr_wide=9,
-#         min_snr_1arm=10,
-#         wide_ibox=17,
-#         max_ibox=33,
-#         min_cntb=None,
-#         max_cntb=None,
-#         max_cntb0=None,
-#         min_cntc=None,
-#         max_cntc=None,
-#         max_ncl=None,
-#         target_params=None,
-#         frac_wide=0.0,
-#         nsnr=NSNR
-# ):
-#     """Function to select a subset of clustered output.
-#     Can set minimum SNR, min/max number of beams in cluster, min/max total count in cluster.
-#     target_params is a tuple (min_dmt, max_dmt, min_snrt) for custom snr threshold for target.
-#     max_ncl is maximum number of clusters returned (sorted by SNR).
-#     """
-
-#     if target_params is not None:
-#         min_dmt, max_dmt, min_snrt = target_params
-#     else:
-#         min_dmt, max_dmt, min_snrt = None, None, None
-
-#     good = [True] * len(tab)
-
-#     if min_snr is not None:
-#         if min_snrt is None:
-#             # snr limit for narrow and wide, with requirement of at least two beams
-#             df = tab.to_pandas()
-            
-#             nsarr = ((df[[f'beams{i}' for i in range(nsnr)]].values > 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
-#             ewarr = ((df[[f'beams{i}' for i in range(nsnr)]].values <= 255)) & (df[[f'snrs{i}' for i in range(nsnr)]].values > 0)
-#             twoarm = (ewarr.any(axis=1) & nsarr.any(axis=1)) | (df['snr'].values > min_snr_1arm).any()
-
-#             good0 = (tab["snr"] > min_snr) * (tab["ibox"] < wide_ibox)
-#             good1 = (tab["snr"] > min_snr_wide) * (tab["ibox"] >= wide_ibox)
-#             good *= good0*twoarm + good1*twoarm
-
-#         else:
-#             good0 = (tab["snr"] > min_snr) * (tab["dm"] > max_dmt)
-#             good1 = (tab["snr"] > min_snr) * (tab["dm"] < min_dmt)
-#             good2 = (
-#                 (tab["snr"] > min_snrt)
-#                 * (tab["dm"] > min_dmt)
-#                 * (tab["dm"] < max_dmt)
-#             )
-#             good *= good0 + good1 + good2
-            
-
-#     if min_dm is not None:
-#         good *= tab["dm"] > min_dm
-#     if max_ibox is not None:
-#         good *= tab["ibox"] < max_ibox
-#     if min_cntb is not None:
-#         good *= tab["cntb"] > min_cntb
-#     if max_cntb is not None:
-#         good *= tab["cntb"] < max_cntb
-#     if min_cntc is not None:
-#         good *= tab["cntc"] > min_cntc
-#     if max_cntc is not None:
-#         good *= tab["cntc"] < max_cntc
-
-#     tab_out = tab[good]
-
-#     if max_ncl is not None:
-#         if len(tab_out) > max_ncl:
-#             min_snr_cl = sorted(tab_out["snr"])[-max_ncl]
-#             good = tab_out["snr"] >= min_snr_cl
-#             tab_out = tab_out[good]
-#             print(
-#                 f"Limiting output to {max_ncl} clusters with snr>{min_snr_cl}."
-#             )
-
-#     logger.info(
-#         f"Filtering clusters from {len(tab)} to {len(tab_out)} candidates."
-#     )
-#     print(f"Filtering clusters from {len(tab)} to {len(tab_out)} candidates.")
-
-#     return tab_out
-
 def filter_clustered(
         tab,
         min_dm=50,
         min_snr=7.5,
         min_snr_wide=9,
-        min_snr_1arm=10,
+        min_snr_1arm=9.0,
         wide_ibox=17,
         max_ibox=33,
         min_cntb=None,
@@ -466,8 +372,8 @@ def filter_clustered(
         frac_wide=0.0,
         nsnr=NSNR
 ):
-    """Select a subset of clustered output.
-    Same decision logic as before; fixes the global .any() bug and replaces * with boolean ops.
+    """
+    Select a subset of clustered output.
     """
 
     # target params wiring unchanged
@@ -475,8 +381,6 @@ def filter_clustered(
         min_dmt, max_dmt, min_snrt = target_params
     else:
         min_dmt, max_dmt, min_snrt = None, None, None
-
-    import numpy as np  # local to keep this drop-in self-contained
 
     # start with "all True" mask
     good = np.ones(len(tab), dtype=bool)
@@ -615,8 +519,8 @@ def dump_cluster_results_json(
             assert all([col in tab_inj.columns for col in ["MJD", "Beam", "DM", "SNR", "FRBno"]])
 
         # is candidate proximal to any in tab_inj?
-        t_close = 300 # seconds  TODO: why not 1 sec?
-        dm_close = 20 # pc/cm3
+        t_close = 120 # seconds  TODO: why not 1 sec?
+        dm_close = 10 # pc/cm3
         beam_close = 2 # number
 
         sel_t = np.abs(tab_inj["MJD"] - mjd) < t_close/86400.0
@@ -723,7 +627,6 @@ def dump_cluster_results_json(
                 return row, candname, trigtime
 
             else:
-                print(f"Not triggering on source in beam")
                 logger.info(f"Not triggering on source in beam")
                 return None, candname, None
 
@@ -763,7 +666,6 @@ def dump_cluster_results_json(
         )
         return None, lastname, None
 
-    print("Not triggering on nbeams condition")
     return None, lastname, None
 
 

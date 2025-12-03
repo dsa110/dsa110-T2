@@ -1,6 +1,8 @@
 import socket
 import numpy as np
 
+
+
 from T2 import cluster_heimdall
 import func_timeout as ft
 try:
@@ -107,7 +109,6 @@ def parse_socket(
         model = None
         coords, snrs = triggering.parse_catalog(source_catalog)
     else:
-        print("No source catalog found. No model generated.")
         model = None
         coords = None
         snrs = None
@@ -119,14 +120,14 @@ def parse_socket(
     if audit_enabled:
         # Window parameters: try etcd -> t2_cnf -> hard defaults
         try:
-            time_window_s = int(ds.get_dict('/cnf/t2').get('audit_time_window_s', 300))
+            time_window_s = int(ds.get_dict('/cnf/t2').get('audit_time_window_s', 120))
         except Exception:
-            time_window_s = int(t2_cnf.get('audit_time_window_s', 300))
+            time_window_s = int(t2_cnf.get('audit_time_window_s', 120))
 
         try:
-            dm_window = float(ds.get_dict('/cnf/t2').get('audit_dm_window', 20.0))
+            dm_window = float(ds.get_dict('/cnf/t2').get('audit_dm_window', 10.0))
         except Exception:
-            dm_window = float(t2_cnf.get('audit_dm_window', 20.0))
+            dm_window = float(t2_cnf.get('audit_dm_window', 10.0))
 
         try:
             beam_window = int(ds.get_dict('/cnf/t2').get('audit_beam_window', 2))
@@ -469,12 +470,14 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     #target_params = (50.0, 100.0, 20.0)  # Galactic bursts
     target_params = None
 
+    print(f"Minimum DM set to {min_dm} pc/cm3", flush=True)
+
     # --- Required for injection auditing ---
     #Vishnu: These two variables (min_snr_1arm, max_nbeams) are currently hardcoded but I think they eventually belong to t2_cnf or etcd. Adding this assuming it will be done later.
     try:
-        min_snr_1arm = ds.get_dict('/cnf/t2').get("min_snr_1arm", 10)
+        min_snr_1arm = ds.get_dict('/cnf/t2').get("min_snr_1arm", 9)
     except Exception:
-        min_snr_1arm = t2_cnf.get("min_snr_1arm", 10)
+        min_snr_1arm = t2_cnf.get("min_snr_1arm", 9)
 
     try:
         max_nbeams_allowed = int(ds.get_dict('/cnf/t2').get("max_nbeams", 40))
@@ -512,15 +515,6 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
             logger.warning(f"T1 dump failed: {_e}")
 
     
-    # raise SNR threshold in case of bright events
-    #max_snr = tab["snr"].max()
-    #snrthresh = max_snr-10.
-    #good = tab["snr"] > snrthresh
-    #tab = tab[good]
-    
-    # how many points
-    #print(f"cluster_and_plot: have {len(tab)} inputs ABOVE {snrthresh}")
-    #logger.info(f"cluster_and_plot: have {len(tab)} inputs ABOVE {snrthresh}")
 
     tab_pre_flag = tab.copy()
     # flag beams
@@ -558,6 +552,8 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     #        ibox64_filter = True
 
     # Done
+    print("Calling filter_clustered with parameters:")
+    print(f"min_dm={min_dm}, min_snr={min_snr}, min_snr_wide={min_snr_wide}, wide_ibox={wide_ibox}, max_ibox={max_ibox}, max_cntb={max_cntb}, max_cntb0={max_cntb0}, max_ncl={max_ncl}, target_params={target_params}")
     tab3 = cluster_heimdall.filter_clustered(
         tab2,
         min_dm=min_dm,

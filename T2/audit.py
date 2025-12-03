@@ -381,8 +381,8 @@ class Auditor:
     def __init__(
         self,
         audit_dir: Optional[str] = None,
-        time_window_s: int = 300, 
-        dm_window: float = 20.0,
+        time_window_s: int = 120, 
+        dm_window: float = 10.0,
         beam_window: int = 2,
         persist_json: bool = False,
     ):
@@ -421,13 +421,6 @@ class Auditor:
         
       
         self.log.info(
-            f"[AUDIT] init audit_dir={self.audit_dir} "
-            f"persist_json={self.persist_json} "
-            f"time_window_s={self.time_window_s} "
-            f"dm_window={self.dm_window} "
-            f"beam_window={self.beam_window}"
-        )
-        print(
             f"[AUDIT] init audit_dir={self.audit_dir} "
             f"persist_json={self.persist_json} "
             f"time_window_s={self.time_window_s} "
@@ -569,7 +562,6 @@ class Auditor:
                 restored += 1
 
         self.log.info(f"[AUDIT] bootstrap: restored {restored} injections from snapshot")
-        print(f"[AUDIT] bootstrap: restored {restored} injections from snapshot")
         return restored
 
     def ingest_legacy_injections(self, legacy_path: str) -> int:
@@ -614,7 +606,6 @@ class Auditor:
                 continue
 
         self.log.info(f"[AUDIT][ingest] added {added} new injections from legacy file")
-        print(f"[AUDIT][ingest] added {added} new injections from legacy file")
         return added
 
     def attach_injection_source(self, path: str):
@@ -768,10 +759,8 @@ class Auditor:
             os.replace(tmp, pj)
             msg = f"[AUDIT] persisted state JSON for inj_id={inj_id} -> {pj}"
             self.log.debug(msg)
-            print(msg)
         except Exception as e:
             self.log.warning(f"[AUDIT] failed to persist state JSON for inj_id={inj_id}: {e}")
-            print(f"[AUDIT] failed to persist state JSON for inj_id={inj_id}: {e}")
 
     # public API
     def seed_injection(self, inj_id: str, inj_meta: Dict[str, Any]):
@@ -815,7 +804,6 @@ class Auditor:
             self._write_injections_csv()
 
             self.log.info(f"[AUDIT][seed] new inj_id={inj_id}")
-            print(f"[AUDIT][seed] new inj_id={inj_id}")
 
     def update_from_tab(
         self,
@@ -838,10 +826,8 @@ class Auditor:
                 self.log.warning("[AUDIT][update] cannot determine mjd_now from tab likely because it is empty.")
                 mjd_now = Time.now().mjd
                 self.log.info("[AUDIT][update] empty tab; using now() for mjd_center")
-                print("[AUDIT][update] empty tab; using now() for mjd_center")
 
             self.log.info(f"[AUDIT][update] start gulp={gulp} host={host} len(tab)={len(tab)} mjd_now={mjd_now}")
-            print(f"[AUDIT][update] start gulp={gulp} host={host} len(tab)={len(tab)} mjd_now={mjd_now}")
 
             # compute once
             npoints_tab = int(len(tab))
@@ -906,11 +892,9 @@ class Auditor:
             self._write_injections_csv()
 
             self.log.info(f"[AUDIT][update] done: considered_injections={len(list(self.injections.keys()))}")
-            print(f"[AUDIT][update] done: considered_injections={len(list(self.injections.keys()))}")
 
         except Exception as e:
             self.log.warning(f"[AUDIT][update] fatal error: {e}")
-            print(f"[AUDIT][update] fatal error: {e}")
 
     
     def finalize_from_cluster_result(
@@ -946,14 +930,7 @@ class Auditor:
                 f"len(peak)={(len(tab_peak) if tab_peak is not None else '0')} "
                 f"len(after)={(len(tab_after_filters) if tab_after_filters is not None else '0')}"
             )
-            print(
-                f"[AUDIT][finalize] start gulp={gulp} host={host} triggered={triggered} "
-                f"mjd_now={mjd_now} len(pre)={(len(tab_pre_filter) if tab_pre_filter is not None else 'NA')} "
-                f"len(flag)={(len(tab_after_beam_flag) if tab_after_beam_flag is not None else 'NA')} "
-                f"len(peak)={(len(tab_peak) if tab_peak is not None else '0')} "
-                f"len(after)={(len(tab_after_filters) if tab_after_filters is not None else '0')}"
-            )
-
+            
             npoints_after_flag_val = (int(len(tab_after_beam_flag)) if tab_after_beam_flag is not None else "")
 
             for inj_id, st in self._iter_injections_in_window(mjd_now):
@@ -1112,11 +1089,9 @@ class Auditor:
             self._write_injections_csv()
 
             self.log.info(f"[AUDIT][finalize] done: considered_injections={len(list(self.injections.keys()))}")
-            print(f"[AUDIT][finalize] done: considered_injections={len(list(self.injections.keys()))}")
 
         except Exception as e:
             self.log.warning(f"[AUDIT][finalize] fatal error: {e}")
-            print(f"[AUDIT][finalize] fatal error: {e}")
 
 
     def _append_audit_log(
@@ -1230,7 +1205,6 @@ class Auditor:
             self._flock_append_csvrow(self._audit_log_path(), row)
 
             self.log.info(f"[AUDIT][append_audit_log] wrote audit row for inj_id={inj_id}")
-            print(f"[AUDIT][append_audit_log] wrote audit row for inj_id={inj_id}")
 
     def _write_injections_csv(self):
         """
@@ -1287,7 +1261,6 @@ class Auditor:
         os.replace(tmp, p)
 
         self.log.info(f"[AUDIT][write_injections_csv] wrote {len(rows)} rows to {p}")
-        print(f"[AUDIT][write_injections_csv] wrote {len(rows)} rows to {p}")
 
         if self.persist_json:
             # persist each JSON outside the CSV lock to avoid deadlocks

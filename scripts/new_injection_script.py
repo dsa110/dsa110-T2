@@ -25,7 +25,7 @@ TEMPLATES = [
    # "/home/ubuntu/data/burst_4.inject", DM 2500 is not used in search
 ]
 
-SLEEP_SEC = 600  # 10 minutes
+SLEEP_SEC = 1800  # 30 minutes
 
 NODES = [17, 18, 19, 20]
 PAIR  = {17: 19, 18: 20, 19: 17, 20: 18}

@@ -23,7 +23,7 @@ def main(argv):
     parser.add_argument("--audit_dir", type=str, default="/operations/T2/injection_audit_results/", help="directory for dumping audit results (CSV/JSON). Ignored unless --audit_injections is set.")
     parser.add_argument("--dump_t1", action="store_true",
                         help="if set, dump raw T1 candidates to daily CSV files (append-only)")
-    parser.add_argument("--t1_dump_dir", type=str, default="/operations/T2/T1_DUMPS_VISHNU_TEST/",
+    parser.add_argument("--t1_dump_dir", type=str, default="/operations/T2/cluster_output/",
                         help="directory to write daily T1 CSV dumps")
 
     args = parser.parse_args()

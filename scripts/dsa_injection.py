@@ -47,9 +47,8 @@ for kk in [17,18]:
         #ind = int(ii%4)#np.where(params[:,-1]==float(frbno))[0]
 
         #mysnr = 0.08#0.2-np.random.uniform()*0.14
-        #mysnr = 0.125
-        #vishnu test
-        mysnr = 0.25
+        mysnr = 0.125
+        #mysnr=0.2
         
         DM = 1000
         SNR = 30.0

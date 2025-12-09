@@ -1,6 +1,8 @@
 import socket
 import numpy as np
 
+
+
 from T2 import cluster_heimdall
 import func_timeout as ft
 try:
@@ -29,6 +31,7 @@ from event import names
 import os
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import pandas
+from astropy.table import Table
 
 try:
     t2_cnf = my_cnf.get("t2")
@@ -39,6 +42,10 @@ except (KeyError, ConnectionFailedError):
     )
     my_cnf = cnf.Conf(use_etcd=False)
     t2_cnf = my_cnf.get("t2")
+
+#Auditor import
+from T2.audit import Auditor  
+INJECTION_FILE = "/operations/T2/injection_audit_results/injections_for_audit.txt"  
 
 from collections import deque
 
@@ -53,6 +60,12 @@ def parse_socket(
     plot_dir=None,
     trigger=False,
     source_catalog=None,
+    #audit injection parameters
+    audit_injections=False,
+    audit_dump_json=False,
+    audit_dir="/operations/T2/injection_audit_results/",
+    dump_t1=False,
+    t1_dump_dir="/operations/T2/T1_DUMPS_VISHNU_TEST/",
 ):
     """
     Takes standard MBHeimdall giants socket output and returns full table, classifier inputs and snr tables.
@@ -62,11 +75,18 @@ def parse_socket(
     ports can be list of integers.
     selectcol: list of str.  Select columns for clustering.
     source_catalog: path to file containing source catalog for source rejection. default None
+    audit_injections: bool, whether to enable injection auditing (default False)
+    audit_dump_json: bool, whether to dump per-injection JSON files (default False)
+    audit_dir: str, directory to store audit results (default "/operations/T2/injection_audit_results/")
+
     """
 
     # startup time
     min_timedelt = 60. ## TODO put this in etcd
     prev_trig_time = Time.now()
+    last_real_trigger_time = None
+    last_real_trigger_name = None
+    last_flushed_for_name = None
     
     # count of output - separate from gulps
     globct = 0
@@ -89,10 +109,59 @@ def parse_socket(
         model = None
         coords, snrs = triggering.parse_catalog(source_catalog)
     else:
-        print("No source catalog found. No model generated.")
         model = None
         coords = None
         snrs = None
+
+    # Audit Injection Setup
+    audit_enabled = bool(audit_injections)
+    auditor = None
+
+    if audit_enabled:
+        # Window parameters: try etcd -> t2_cnf -> hard defaults
+        try:
+            time_window_s = int(ds.get_dict('/cnf/t2').get('audit_time_window_s', 120))
+        except Exception:
+            time_window_s = int(t2_cnf.get('audit_time_window_s', 120))
+
+        try:
+            dm_window = float(ds.get_dict('/cnf/t2').get('audit_dm_window', 10.0))
+        except Exception:
+            dm_window = float(t2_cnf.get('audit_dm_window', 10.0))
+
+        try:
+            beam_window = int(ds.get_dict('/cnf/t2').get('audit_beam_window', 2))
+        except Exception:
+            beam_window = int(t2_cnf.get('audit_beam_window', 2))
+
+        # Ensure audit_dir exists
+        try:
+            os.makedirs(audit_dir, exist_ok=True)
+        except Exception as _e:
+            logger.warning(f"Could not create audit_dir {audit_dir}: {_e}")
+
+        # Instantiate Auditor with chosen persistence mode
+        from T2.audit import Auditor
+        auditor = Auditor(
+            audit_dir=audit_dir,
+            time_window_s=time_window_s,
+            dm_window=dm_window,
+            beam_window=beam_window,
+            persist_json=bool(audit_dump_json),
+        )
+
+        try:
+            restored = auditor.bootstrap_from_snapshot()
+            if restored:
+                print(f"[AUDIT] bootstrap: restored {restored} injections from snapshot")
+        except Exception as e:
+            logger.warning(f"[AUDIT] bootstrap_from_snapshot failed: {e}")
+
+        auditor.attach_injection_source(INJECTION_FILE)
+        added0 = auditor.refresh_from_source(force=True)
+        if added0:
+            print(f"[AUDIT] initial load: applied {added0} injections from {INJECTION_FILE}")
+    # end of audit setup
 
     logger.info(f"Reading from {len(ports)} sockets...")
     print(f"Reading from {len(ports)} sockets...")
@@ -100,10 +169,17 @@ def parse_socket(
     pool = ThreadPoolExecutor(max_workers=10)
     futures = {}
     trigtime = None
+    triggered_ret = False
+    trigtime_ret = None
+    lastname_ret = None
     while True:
 
         if len(futures):
-            lastname, trigtime, futures = manage_futures(lastname, trigtime, futures)
+            lastname_ret, trigtime_ret, triggered_ret, futures = manage_futures(lastname, trigtime, futures)
+
+        if triggered_ret:
+            last_real_trigger_time = trigtime_ret
+            last_real_trigger_name = lastname_ret
 
         if trigtime is not None:
             prev_trig_time = trigtime
@@ -204,35 +280,68 @@ def parse_socket(
                 "/mon/service/T2gulp",
                 {"cadence": 60, "time": Time(datetime.datetime.utcnow()).mjd},
             )
-
-        # uncomment to not process cands
-        #gulp_status(0)
-        #continue
-
-                # send flush trigger after min_timedelt (once per candidate)
-        if (Time.now() - prev_trig_time).value > min_timedelt/86400. and lastname_cleared != lastname:
+        
+        # Flush exactly once after a REAL trigger, separated by min_timedelt
+        if (last_real_trigger_time is not None
+            and (Time.now() - last_real_trigger_time).to_value('sec') >= min_timedelt
+            and last_flushed_for_name != last_real_trigger_name):
             print("Sending flush trigger")
             logger.info("Sending flush trigger")
             ds.put_dict('/cmd/corr/0', {'cmd': 'trigger', 'val': '0-flush-'})
-            lastname_cleared = lastname   # reset to avoid continuous calls
-            prev_trig_time = Time.now()  # pass this on to log extra triggers in second latency window
+            last_flushed_for_name = last_real_trigger_name
         else:
-            print(f"Cannot send flush: {Time.now() - prev_trig_time} {min_timedelt/86400.}")
-            logger.info(f"Cannot send flush: {Time.now() - prev_trig_time} {min_timedelt/86400.}")
-            print(f"{lastname_cleared} {lastname}")
-            logger.info(f"{lastname_cleared} {lastname}")
+            dt = (Time.now() - last_real_trigger_time).to_value('sec') if last_real_trigger_time is not None else None
+            print(f"Cannot send flush: dt_since_real_trigger={dt} min_timedelt={min_timedelt}")
+            logger.info(f"Cannot send flush: dt_since_real_trigger={dt} min_timedelt={min_timedelt}")
+            print(f"last_flushed_for_name={last_flushed_for_name} last_real_trigger_name={last_real_trigger_name}")
+            logger.info(f"last_flushed_for_name={last_flushed_for_name} last_real_trigger_name={last_real_trigger_name}")
+
 
         
         if candsfile == "\n" or candsfile == "":  # skip empty candsfile
             print(f"candsfile is empty. Skipping.")
             logger.info(f"candsfile is empty. Skipping.")
+            # Advance the rolling window for this gulp
+            nbeams_queue.append(0)
+            if audit_enabled and auditor is not None:
+                auditor.update_from_tab(
+                    host=host,
+                    gulp=gulp,
+                    tab=Table(), #This is an empty table passed for audit update
+                    nbeams_queue_snapshot=list(nbeams_queue),
+                    nbeams_queue_sum=sum(nbeams_queue) if len(nbeams_queue) else 0,
+                    runtime_thresholds={},
+                    prev_trig_time=prev_trig_time,
+                )
 
             gulp_status(0)
             continue
 
 
         tab = cluster_heimdall.parse_candsfile(candsfile)
-        print(f"Tab is {tab}")
+        #injection auditor changes...
+
+        if audit_enabled and auditor is not None:
+            try:
+                added = auditor.refresh_from_source(force=False)
+                if added:
+                    print(f"[AUDIT] reload: applied {added} injection rows from {INJECTION_FILE}")
+            except Exception as e:
+                logger.warning(f"[AUDIT] refresh_from_source failed: {e}")
+            try:
+                # Early-stage audit update (G1/G2)
+                auditor.update_from_tab(
+                    host=host,
+                    gulp=gulp,
+                    tab=tab,
+                    nbeams_queue_snapshot=list(nbeams_queue),
+                    nbeams_queue_sum=sum(nbeams_queue) if len(nbeams_queue) else 0,
+                    runtime_thresholds={},  # thresholds filled at finalize stage
+                    prev_trig_time=prev_trig_time,
+                )
+            except Exception as e:
+                logger.warning(f"[AUDIT] update_from_tab failed: {e}")
+
         # to handle too many futures
         if len(futures)>1:
             print(f"Waiting for >=2 futures to finish -- skipping {gulps}")
@@ -242,18 +351,17 @@ def parse_socket(
             future = pool.submit(cluster_and_plot, tab, gulp=gulp, selectcols=selectcols,
                                  outroot=outroot, plot_dir=plot_dir, trigger=trigger, lastname=lastname,
                                  cat=source_catalog, beam_model=model, coords=coords, snrs=snrs,
-                                 prev_trig_time=prev_trig_time)
+                                 prev_trig_time=last_real_trigger_time, auditor=auditor, audit_enabled=audit_enabled, dump_t1=dump_t1, t1_dump_dir=t1_dump_dir)
             globct += 1
             futures[key] = future
             print(f'Processing {len(futures)} gulps')
 
-            try:
-                
-                lastname, trigtime, futures = manage_futures(lastname, trigtime, futures)  # returns latest result from iteration over futures
-            except:
-                print('Caught error in manage_futures. Closing sockets.')
-                for cl in cls:
-                    cl.close()
+            # try:
+            #     lastname, trigtime, futures = manage_futures(lastname, trigtime, futures)  # returns latest result from iteration over futures
+            # except:
+            #     print('Caught error in manage_futures. Closing sockets.')
+            #     for cl in cls:
+            #         cl.close()
 
             if trigtime is not None:
                 prev_trig_time = trigtime
@@ -267,13 +375,20 @@ def manage_futures(old_lastname, old_trigtime, futures):
 
     done = []
     triggered = False
+    ret_lastname = old_lastname
+    ret_trigtime = None
     for k, future in futures.items():
         if future.done():
             done.append(k)
             try:
-                lastname,trigtime,triggered = future.result()
+                lastname,trigtime,did_trigger = future.result()
                 if trigtime is not None:
                     gulp_status(0)  # success!
+                if lastname is not None:
+                    ret_lastname = lastname
+                if trigtime is not None:
+                    ret_trigtime = trigtime
+                triggered = triggered or bool(did_trigger)
             except KeyboardInterrupt:
                 print("Escaping parsing and plotting")
                 logger.info("Escaping parsing and plotting")
@@ -285,19 +400,15 @@ def manage_futures(old_lastname, old_trigtime, futures):
     if len(done):
         for k in done:
             _ = futures.pop(k)
-
         print(f'{len(done)} gulp future(s) completed')
 
-    if triggered is False:
-        return old_lastname, None, futures
-    else:
-        return lastname, trigtime, futures
+    return ret_lastname, ret_trigtime, triggered, futures
 
 
 def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
                      outroot=None, plot_dir=None, trigger=False, lastname=None,
                      max_ncl=None, cat=None, beam_model=None, coords=None,
-                     snrs=None, prev_trig_time=None):
+                     snrs=None, prev_trig_time=None, auditor=None, audit_enabled=False, dump_t1=False, t1_dump_dir=None):
     """
     Run clustering and plotting on read data.
     Can optionally save clusters as heimdall candidate table before filtering and json version of buffer trigger.
@@ -311,6 +422,9 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     min_timedelt = 60. ## TODO put this in etcd
     trigtime = None
     triggered = False
+    #injection auditing related
+    output_file = ""
+    candname_for_audit = None
     columns = ['snr','if','specnum','mjds','ibox','idm','dm','ibeam','cl','cntc','cntb','snrs0','beams0','snrs1','beams1','snrs2','beams2','snrs3','beams3','snrs4','beams4','snrs5','beams5','snrs6','beams6','snrs7','beams7','snrs8','beams8','snrs9','beams9','trigger']
     
     # obtain this from etcd
@@ -356,6 +470,35 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     #target_params = (50.0, 100.0, 20.0)  # Galactic bursts
     target_params = None
 
+    print(f"Minimum DM set to {min_dm} pc/cm3", flush=True)
+
+    # --- Required for injection auditing ---
+    #Vishnu: These two variables (min_snr_1arm, max_nbeams) are currently hardcoded but I think they eventually belong to t2_cnf or etcd. Adding this assuming it will be done later.
+    try:
+        min_snr_1arm = ds.get_dict('/cnf/t2').get("min_snr_1arm", 9)
+    except Exception:
+        min_snr_1arm = t2_cnf.get("min_snr_1arm", 9)
+
+    try:
+        max_nbeams_allowed = int(ds.get_dict('/cnf/t2').get("max_nbeams", 40))
+    except Exception:
+        max_nbeams_allowed = int(t2_cnf.get("max_nbeams", 40))
+
+    
+    thresholds_snapshot = {
+        "min_snr": float(min_snr),
+        "min_snr_wide": float(min_snr_wide),
+        "min_snr_1arm": float(min_snr_1arm),
+        "wide_ibox": int(wide_ibox),
+        "max_ibox": int(max_ibox),
+        "max_cntb": int(max_cntb),
+        "max_cntb0": int(max_cntb0),
+        "max_ncl": int(max_ncl) if max_ncl is not None else "",
+        "min_dm": float(min_dm),
+        "max_nbeams": int(max_nbeams_allowed),
+        "min_timedelt": float(60.0),  # matches local default below; but should really belong to etcd/t2_cnf
+    }
+
     #ind = np.where(tab["ibox"]<32)[0]
     #tab = tab[ind]
 
@@ -363,32 +506,30 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     print(f"cluster_and_plot: have {len(tab)} inputs")
     logger.info(f"cluster_and_plot: have {len(tab)} inputs")
 
-    
-    # raise SNR threshold in case of bright events
-    #max_snr = tab["snr"].max()
-    #snrthresh = max_snr-10.
-    #good = tab["snr"] > snrthresh
-    #tab = tab[good]
-    
-    # how many points
-    #print(f"cluster_and_plot: have {len(tab)} inputs ABOVE {snrthresh}")
-    #logger.info(f"cluster_and_plot: have {len(tab)} inputs ABOVE {snrthresh}")
+    #Optional Dumping of T1 candidates to disk.
+    if dump_t1 and len(tab):
+        try:
+            print("Dumping T1 candidates to disk...")
+            cluster_heimdall.dump_T1_csv(tab, gulp=gulp, dump_dir=t1_dump_dir)
+        except Exception as _e:
+            logger.warning(f"T1 dump failed: {_e}")
 
+    
+
+    tab_pre_flag = tab.copy()
     # flag beams
-    mytab = cluster_heimdall.flag_beams(tab)
-    tab = mytab
+    tab_after_flag = cluster_heimdall.flag_beams(tab)
     
     # cluster
     cluster_heimdall.cluster_data(
-        tab,
+        tab_after_flag,
         #metric="euclidean",
         allow_single_cluster=True,
         return_clusterer=False,
     )
-    tab2 = cluster_heimdall.get_peak(tab)
+    tab2 = cluster_heimdall.get_peak(tab_after_flag)
     nbeams_gulp = cluster_heimdall.get_nbeams(tab2, threshold=min_snr)
     nbeams_queue.append(nbeams_gulp)
-    print(f"nbeams_queue: {nbeams_queue}")
 
     # Liam edit to preserve real FRBs during RFI storm:
     # if nbeam > 100 and frac_wide < 0.8: do not discard
@@ -411,6 +552,8 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     #        ibox64_filter = True
 
     # Done
+    print("Calling filter_clustered with parameters:")
+    print(f"min_dm={min_dm}, min_snr={min_snr}, min_snr_wide={min_snr_wide}, wide_ibox={wide_ibox}, max_ibox={max_ibox}, max_cntb={max_cntb}, max_cntb0={max_cntb0}, max_ncl={max_ncl}, target_params={target_params}")
     tab3 = cluster_heimdall.filter_clustered(
         tab2,
         min_dm=min_dm,
@@ -440,6 +583,11 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
             prev_trig_time=prev_trig_time,
             min_timedelt=min_timedelt
         )
+        #Updating candname for injection audits.
+        candname_for_audit = lastname
+        # "triggered" means a real voltage trigger (trigtime set by dump_cluster_results_json only for real triggers)
+        triggered = bool(trigtime is not None)
+
         if tab4 is not None and trigger:
             col_trigger = np.where(
                 tab4 == tab2, lastname, 0
@@ -448,8 +596,7 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
             # write all T1 cands
             outputted = cluster_heimdall.dump_cluster_results_heimdall(tab, outroot + f"T1_output{str(np.floor(time.time()).astype('int'))}.csv")
 
-            # did I trigger
-            triggered = True
+           
 
     # write T2 clustered/filtered results
     if outroot is not None and len(tab2):
@@ -489,6 +636,45 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
 
             dfc = pandas.concat(dfs)
             dfc.to_csv(ofl, index=False)
+    
+
+    # --- Finalize audit (stamps G3..G7) ---
+    if audit_enabled and auditor is not None:
+        try:
+            if prev_trig_time is None:
+                # No prior real trigger this session: cooldown is effectively satisfied
+                cooldown_wait_s = float('inf')
+            else:
+                try:
+                    cooldown_wait_s = float((Time.now() - prev_trig_time).to_value('sec'))
+                except Exception:
+                    cooldown_wait_s = float('inf')
+
+            nbeams_this_gulp = int(nbeams_gulp)
+            thresholds_for_finalize = dict(thresholds_snapshot)
+            thresholds_for_finalize["t2_output_file"] = output_file if outroot is not None else ""
+            thresholds_for_finalize["exception"] = ""
+
+            auditor.finalize_from_cluster_result(
+                host="T2",                              
+                gulp=int(gulp) if gulp is not None else -1,
+                tab_pre_filter=tab_pre_flag,
+                tab_after_beam_flag=tab_after_flag,
+                tab_peak=tab2,
+                tab_after_filters=tab3,
+                lastname=lastname,                     
+                trigtime=trigtime,
+                triggered=bool(triggered),
+                nbeams_this_gulp=nbeams_this_gulp,
+                nbeams_queue_snapshot=list(nbeams_queue),
+                nbeams_queue_sum=sum(nbeams_queue) if len(nbeams_queue) else 0,
+                thresholds=thresholds_for_finalize,
+                cooldown_wait_s=cooldown_wait_s,
+                candname_for_injection=(candname_for_audit if 'candname_for_audit' in locals() else None),
+            )
+        except Exception as e:
+            logger.warning(f"[AUDIT] finalize_from_cluster_result failed: {e}")
+
 
     return lastname, trigtime, triggered
 

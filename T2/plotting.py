@@ -139,7 +139,7 @@ def plot_dm_hist(
     ax.xaxis.set_major_formatter(formatter)
     ax.yaxis.set_major_formatter(formatter)
 
-    ax.set_xlabel("$\\rm DM\;(pc\;cm^{-3})$", size=12)
+    ax.set_xlabel(r"$\rm DM\;(pc\;cm^{-3})$", size=12)
     ax.set_ylabel("$\\rm Giants count$", size=12)
     ax.set_title("giants dm")
     fig.savefig(
@@ -220,12 +220,15 @@ def plot_dm_snr(ax, ax_cbar, tab, tsamp=1048e-6):
         colormap,
         cax=ax_cbar,
         use_gridspec=True,
-        label="$\\rm Boxcar width\;(index)$",
+        label=r"$\rm Boxcar\ width\;(index)$",
     )
-    cticks = np.array(cbar.get_ticks())
-    cbar.ax.set_yticklabels(
-        [x[0:5] for x in (2.0**cticks * tsamp * 1000.0).astype("str")]
-    )
+    #fix for matplotlib warning: UserWarning: FixedFormatter should only be used together with FixedLocator
+    ibox_vals = np.arange(0, 13)
+    cbar.set_ticks(ibox_vals)
+    widths_ms = (2.0 ** ibox_vals) * tsamp * 1000.0
+    ticklabels = [f"{val:.3f}" for val in widths_ms]
+    cbar.set_ticklabels(ticklabels)
+    
     cbar.set_alpha(1)
     cbar.draw_all()
 
@@ -256,8 +259,8 @@ def plot_time_dm(
         ax.set_yscale("log")
 
     if axlabel == True:
-        ax.set_xlabel("$\\rm Time\; (sec)$", size=12)
-        ax.set_ylabel("$\\rm DM\;(pc\;cm^{-3})$", size=12)
+        ax.set_xlabel(r"$\rm Time\;(sec)$", size=12)
+        ax.set_ylabel(r"$\rm DM\;(pc\;cm^{-3})$", size=12)
     else:
         ax.tick_params(axis="x", labelbottom=False)
 
@@ -295,7 +298,7 @@ def plot_beam_time(tab, plot_dir="./"):
         colormap,
         ax=ax,
         use_gridspec=True,
-        label="$\\rm Boxcar width\;(index)$",
+        label=r"$\rm Boxcar\ width\;(index)$",
     )
     ax.set_xlabel("$\\rm mjd (s)$", size=12)
     ax.set_ylabel("$\\rm beam number$", size=12)

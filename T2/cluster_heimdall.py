@@ -30,6 +30,7 @@ except:
     logger = logging.getLogger()
 
 from event import names  # TODO: add event to get DSAEvent class
+import slack_sdk as slack
 
 
 # set up slack client

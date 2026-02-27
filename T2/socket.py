@@ -622,7 +622,7 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
     # write T2 clustered/filtered results
     if outroot is not None and len(tab2):
         tab2["trigger"] = col_trigger
-        output_file = outroot + "cluster_output" + str(np.floor(time.time()).astype("int")) + ".cand"
+        output_file = outroot + "cluster_output" + str(np.floor(time.time()).astype("int")) + f"_{threading.get_ident()}.cand"
         outputted = cluster_heimdall.dump_cluster_results_heimdall(tab2,
                                                                    output_file,
                                                                    min_snr_t2out=min_snr_t2out,

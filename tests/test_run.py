@@ -1,7 +1,15 @@
 import T2
 import pytest
+import os
 import os.path
 import sys
+import glob
+import shutil
+import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import pandas as pd
+
 _install_dir = os.path.abspath(os.path.dirname(__file__))
 
 def test_T2():
@@ -70,4 +78,84 @@ def test_lastname():
     
     assert lastname is not None
     assert lastname != lastname2
+
+
+def test_atomic_csv_write_concurrent():
+    """
+    Verify _atomic_csv_write produces a valid CSV even when many threads
+    write to the same path simultaneously.
+    """
+    tmpdir = tempfile.mkdtemp(prefix="t2_atomic_test_")
+    target = os.path.join(tmpdir, "concurrent.csv")
+    n_threads = 8
+    n_writes_per_thread = 20
+
+    def writer(thread_id):
+        for i in range(n_writes_per_thread):
+            df = pd.DataFrame({
+                "thread": [thread_id] * 5,
+                "iter": [i] * 5,
+                "value": list(range(5)),
+            })
+            T2.socket._atomic_csv_write(df, target)
+
+    with ThreadPoolExecutor(max_workers=n_threads) as pool:
+        futs = [pool.submit(writer, t) for t in range(n_threads)]
+        for f in as_completed(futs):
+            f.result()
+
+    # The file must exist and be a well-formed CSV (last writer wins)
+    assert os.path.exists(target)
+    df = pd.read_csv(target)
+    assert list(df.columns) == ["thread", "iter", "value"]
+    assert len(df) == 5
+
+    shutil.rmtree(tmpdir)
+
+
+def test_aggregate_locking():
+    """
+    Submit several cluster_and_plot calls concurrently and verify the
+    aggregate CSVs are well-formed (no interleaved or garbled rows).
+    """
+    candsfile = os.path.join(_install_dir, "data/T1_output1744907347.csv")
+    tab = T2.cluster_heimdall.parse_candsfile(candsfile)
+
+    tmpdir = tempfile.mkdtemp(prefix="t2_lock_test_")
+    outroot = os.path.join(tmpdir, "lock_")
+    n_threads = 4
+
+    def run_one(idx):
+        return T2.socket.cluster_and_plot(
+            tab, gulp=idx, outroot=outroot, max_ncl=100000
+        )
+
+    with ThreadPoolExecutor(max_workers=n_threads) as pool:
+        futs = [pool.submit(run_one, i) for i in range(n_threads)]
+        for f in as_completed(futs):
+            f.result()
+
+    agg = os.path.join(tmpdir, "lock_cluster_output.csv")
+    assert os.path.exists(agg), "aggregate CSV was not created"
+
+    df = pd.read_csv(agg)
+    assert len(df) > 0, "aggregate CSV is empty"
+
+    # Every row must have the expected column count (no interleaved lines)
+    with open(agg) as fh:
+        header = fh.readline()
+        n_cols = len(header.strip().split(","))
+        for lineno, line in enumerate(fh, start=2):
+            parts = line.strip().split(",")
+            assert len(parts) == n_cols, (
+                f"line {lineno}: expected {n_cols} columns, got {len(parts)}"
+            )
+
+    # Daily CSV must also be valid
+    daily_csvs = glob.glob(os.path.join(tmpdir, "lock_[0-9]*.csv"))
+    for csv_path in daily_csvs:
+        df_daily = pd.read_csv(csv_path)
+        assert len(df_daily) > 0
+
+    shutil.rmtree(tmpdir)
 

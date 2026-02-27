@@ -1,4 +1,5 @@
 import socket
+import threading
 import numpy as np
 
 
@@ -50,6 +51,26 @@ INJECTION_FILE = "/operations/T2/injection_audit_results/injections_for_audit.tx
 from collections import deque
 
 nbeams_queue = deque(maxlen=10)
+_aggregate_lock = threading.Lock()
+
+
+def _atomic_csv_write(df, path):
+    """Write a DataFrame to *path* atomically via a temp file + fsync + rename."""
+    import tempfile
+    dirn = os.path.dirname(path) or "."
+    fd_tmp, tmp = tempfile.mkstemp(dir=dirn, suffix=".tmp")
+    try:
+        with os.fdopen(fd_tmp, "w") as fh:
+            df.to_csv(fh, index=False)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def parse_socket(
@@ -609,15 +630,13 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
 
         # aggregate files
         if outputted:
+          with _aggregate_lock:
             a = Time.now().mjd
             output_mjd = str(int(a))
             old_mjd = str(int(a)-1)
             fl1 = outroot+old_mjd+".csv"
             fl2 = outroot+output_mjd+".csv"
             ofl = outroot+"cluster_output.csv"
-
-#            os.system("cat "+output_file+" >> "+outroot+output_mjd+".csv")
-#            os.system("if ! grep -Fxq 'snr,if,specnum,mjds,ibox,idm,dm,ibeam,cl,cntc,cntb,trigger' "+outroot+output_mjd+".csv; then sed -i '1s/^/snr\,if\,specnum\,mjds\,ibox\,idm\,dm\,ibeam\,cl\,cntc\,cntb\,trigger\\n/' "+outroot+output_mjd+".csv; fi")
 
             df0 = pandas.read_csv(output_file, delimiter=' ', names=columns, on_bad_lines='warn')
 
@@ -629,13 +648,11 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
             if os.path.exists(fl2):  # accumulate to today's for 1-day file
                 df2 = pandas.read_csv(fl2, on_bad_lines='warn')
                 dfs.append(df2)
-                dfc2 = pandas.concat( (df0, df2) )
-                dfc2.to_csv(fl2, index=False)
+                _atomic_csv_write(pandas.concat((df0, df2)), fl2)
             else:
-                df0.to_csv(fl2, index=False)
+                _atomic_csv_write(df0, fl2)
 
-            dfc = pandas.concat(dfs)
-            dfc.to_csv(ofl, index=False)
+            _atomic_csv_write(pandas.concat(dfs), ofl)
     
 
     # --- Finalize audit (stamps G3..G7) ---

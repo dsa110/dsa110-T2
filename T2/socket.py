@@ -54,6 +54,33 @@ nbeams_queue = deque(maxlen=10)
 _aggregate_lock = threading.Lock()
 
 
+_MJD_MIN = 40_000
+_MJD_MAX = 100_000
+
+
+def _drop_corrupt_rows(df):
+    """Drop rows whose essential columns are NaN or have impossible values.
+
+    Corrupted rows originate from .cand file collisions where partial lines
+    were padded with NaN.  They are structurally valid CSV (correct column
+    count) but semantically garbage.
+    """
+    if df.empty or "mjds" not in df.columns:
+        return df
+
+    mjds = pandas.to_numeric(df["mjds"], errors="coerce")
+    valid = mjds.between(_MJD_MIN, _MJD_MAX)
+
+    if "snr" in df.columns:
+        snr = pandas.to_numeric(df["snr"], errors="coerce")
+        valid &= snr.notna() & (snr > 0)
+
+    n_bad = (~valid).sum()
+    if n_bad:
+        print(f"_drop_corrupt_rows: dropping {n_bad} malformed rows")
+    return df.loc[valid].reset_index(drop=True)
+
+
 def _atomic_csv_write(df, path):
     """Write a DataFrame to *path* atomically via a temp file + fsync + rename."""
     import tempfile
@@ -639,19 +666,21 @@ def cluster_and_plot(tab, gulp=None, selectcols=["itime", "idm", "ibox"],
             ofl = outroot+"cluster_output.csv"
 
             df0 = pandas.read_csv(output_file, delimiter=' ', names=columns, on_bad_lines='warn')
+            df0 = _drop_corrupt_rows(df0)
 
-            dfs = [df0]
-            if os.path.exists(fl1):  # accumulate to yesterday's for rolling 2-day file
-                df1 = pandas.read_csv(fl1, on_bad_lines='warn')
+            dfs = []
+            if os.path.exists(fl1):  # yesterday's data first (oldest)
+                df1 = _drop_corrupt_rows(pandas.read_csv(fl1, on_bad_lines='warn'))
                 dfs.append(df1)
 
-            if os.path.exists(fl2):  # accumulate to today's for 1-day file
-                df2 = pandas.read_csv(fl2, on_bad_lines='warn')
+            if os.path.exists(fl2):  # today's existing data next
+                df2 = _drop_corrupt_rows(pandas.read_csv(fl2, on_bad_lines='warn'))
                 dfs.append(df2)
-                _atomic_csv_write(pandas.concat((df0, df2)), fl2)
+                _atomic_csv_write(pandas.concat((df2, df0)), fl2)
             else:
                 _atomic_csv_write(df0, fl2)
 
+            dfs.append(df0)  # newest data last
             _atomic_csv_write(pandas.concat(dfs), ofl)
     
 
